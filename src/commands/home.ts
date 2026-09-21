@@ -1,5 +1,5 @@
 import { readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { resolveProject, type ProjectContext } from "../context.js";
 import { listSchemes } from "../scheme.js";
 import { artifactDir } from "../xcodebuild.js";
@@ -101,9 +101,23 @@ async function describeLastRun(
 
   const summary = await readTestSummary(newest.path).catch(() => undefined);
   const when = relativeTime(newest.mtime / 1000);
+  const where = `see \`xcodebuild-axi result ${tildePath(newest.path)}\``;
+  const kind = runKind(newest.path);
 
-  if (!summary || summary.totalTestCount === undefined) {
-    return `${when} — build, see \`xcodebuild-axi result ${tildePath(newest.path)}\``;
+  // `xcresulttool` answers the test-shaped query for *any* bundle, so a build
+  // comes back as `{title: "Test - X", totalTestCount: 0, result: "unknown"}`
+  // rather than as nothing. Reading that as a verdict rendered a build as
+  // "Test - X on unknown — 0 passed", which is the shape of a clean pass and
+  // was observed on a real build bundle. The old guard did not catch it
+  // because it tested for `undefined` and the count is `0`.
+  //
+  // Which command wrote the bundle is not a guess: `runLabel` names it
+  // `<scheme>[-<device>]-<command>`, so the suffix is authoritative.
+  if (kind !== "test") {
+    return `${when} — ${kind} — ${where}`;
+  }
+  if (!summary || !summary.totalTestCount) {
+    return `${when} — test recorded no tests — ${where}`;
   }
 
   const failed = summary.failedTests ?? 0;
@@ -113,4 +127,17 @@ async function describeLastRun(
       ? `${failed} failed, ${summary.passedTests ?? 0} passed`
       : `${summary.passedTests ?? 0} passed`;
   return `${summary.title ?? "test"} on ${device} — ${verdict} (${when})`;
+}
+
+/**
+ * Which command wrote a bundle, from the name `runLabel` gave it:
+ * `<scheme>[-<device>]-<command>.xcresult`.
+ */
+export function runKind(path: string): string {
+  const stem = basename(path, ".xcresult");
+  const tail = stem.split("-").pop();
+  // `basename` leaves the extension alone when stripping it would leave
+  // nothing, so a degenerate ".xcresult" comes back whole. A command name
+  // always starts with a letter, which is enough to tell the two apart.
+  return tail && /^[A-Za-z]/.test(tail) ? tail : "run";
 }
