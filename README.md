@@ -190,7 +190,7 @@ Every command takes `--help`.
 
 The one action left out is `installsrc` — it copies sources into `SRCROOT` as root, which is a packaging step rather than anything an agent loop needs.
 
-The denominator is read from the `xcodebuild -help` on the machine running `npm run coverage`, and CI fails if a new Xcode adds an option this table has never classified.
+The denominator is read from `xcodebuild -help` rather than hand-maintained, and this table is written against **Xcode 27.0** — the option list moves between releases. `npm run coverage:check` fails on that Xcode if an option here is unclassified or has been dropped, and reports the difference without failing on any other.
 
 <!-- coverage:end -->
 

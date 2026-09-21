@@ -8,6 +8,18 @@
  * has never heard of.
  */
 
+/**
+ * The Xcode whose `xcodebuild -help` this map was written against.
+ *
+ * The option list is not stable across Xcode releases — 26 listed `-dry-run`
+ * and `-downloadAllPreviouslySelectedPlatforms`, 27 dropped both and added the
+ * `platforms` and codesize families. So a machine running a different Xcode
+ * will legitimately disagree with this file, and only a machine running this
+ * one can say the map is actually stale. `scripts/coverage.ts` fails on a
+ * mismatch here and merely reports one elsewhere.
+ */
+export const AUTHORED_AGAINST = "27.0";
+
 export type OptionCoverage =
   /** Reachable through an xcodebuild-axi flag or command. */
   | { status: "exposed"; via: string }

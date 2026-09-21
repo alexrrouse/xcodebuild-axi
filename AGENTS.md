@@ -181,11 +181,23 @@ left out.
 `xcodebuild -help`, computes the percentage, and rewrites the README section
 between the `<!-- coverage:start -->` markers.
 
-`npm run coverage:check` fails three ways, and CI runs it: a stale README, an
-option this xcodebuild lists that the map has never classified (a new Xcode
-shipped one), and an option the map still claims that xcodebuild has dropped.
+`npm run coverage:check` fails on a stale README anywhere, and CI runs it.
 `n/a` options stay in the denominator on purpose — declining to wrap something
 should cost the number something.
+
+The other two failures — an option this xcodebuild lists that the map has never
+classified, and an option the map claims that xcodebuild has dropped — are only
+fatal on the Xcode named by `AUTHORED_AGAINST` in `src/surface.ts`. **The option
+list is not stable across Xcode releases.** 26 listed `-dry-run` and
+`-downloadAllPreviouslySelectedPlatforms`; 27 dropped both and added the
+`platforms` and codesize families. A CI runner on a different Xcode therefore
+disagrees with this map for reasons that are not a defect in it, and failing on
+that would make the check impossible to keep green anywhere but one machine. On
+any other version the differences are printed and the check passes.
+
+So moving to a new Xcode is a deliberate step: run `npm run coverage` on it,
+classify whatever it added, and bump `AUTHORED_AGAINST`. Until then the map
+stays authoritative for the version it was actually read from.
 
 Adding a flag therefore means three edits: the command, `src/surface.ts`, and
 `npm run coverage`. The help text's own `flags[N]:` count is checked by

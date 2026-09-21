@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { format, resolveConfig } from "prettier";
 import {
   ACTION_COVERAGE,
+  AUTHORED_AGAINST,
   OPTION_COVERAGE,
   tally,
   type OptionCoverage,
@@ -57,6 +58,16 @@ async function liveOptions(): Promise<string[] | undefined> {
     if (match?.[1]) options.add(match[1]);
   }
   return [...options].sort();
+}
+
+/** `Xcode 27.0\nBuild version 27A266a` -> `27.0`. */
+async function liveXcodeVersion(): Promise<string | undefined> {
+  try {
+    const { stdout } = await run("xcodebuild", ["-version"]);
+    return /^Xcode ([0-9.]+)/m.exec(stdout)?.[1];
+  } catch {
+    return undefined;
+  }
 }
 
 function describe(entry: OptionCoverage): string {
@@ -110,7 +121,7 @@ function renderSection(): string {
         ]
       : []),
     "",
-    "The denominator is read from the `xcodebuild -help` on the machine running `npm run coverage`, and CI fails if a new Xcode adds an option this table has never classified.",
+    `The denominator is read from \`xcodebuild -help\` rather than hand-maintained, and this table is written against **Xcode ${AUTHORED_AGAINST}** — the option list moves between releases. \`npm run coverage:check\` fails on that Xcode if an option here is unclassified or has been dropped, and reports the difference without failing on any other.`,
     "",
     END,
   ].join("\n");
@@ -183,12 +194,31 @@ if (live === undefined) {
   console.warn("xcodebuild not available — skipping the drift check");
 } else {
   const problems = classificationDrift(live);
-  if (problems.length > 0) {
+  const version = await liveXcodeVersion();
+  // Only the Xcode this map was written against can prove it stale. Any other
+  // version disagrees for reasons that are not a defect in this file, and
+  // failing on that would make the check impossible to keep green anywhere but
+  // one machine.
+  const authoritative = version === AUTHORED_AGAINST;
+
+  if (problems.length > 0 && authoritative) {
     for (const problem of problems) console.error(problem);
     console.error(
       "\nAdd the missing options to src/surface.ts, then rerun `npm run coverage`.",
     );
     process.exit(1);
+  }
+
+  if (problems.length > 0) {
+    console.warn(
+      `xcodebuild ${version ?? "of an unknown version"} differs from the Xcode ${AUTHORED_AGAINST} this map was written against:`,
+    );
+    for (const problem of problems) console.warn(`  ${problem}`);
+    console.warn(
+      `\nNot a failure — only Xcode ${AUTHORED_AGAINST} can say this map is stale. To move the map forward, run \`npm run coverage\` on that Xcode and bump AUTHORED_AGAINST in src/surface.ts.`,
+    );
+  } else if (authoritative) {
+    console.log(`classification matches Xcode ${AUTHORED_AGAINST} exactly`);
   }
 }
 
