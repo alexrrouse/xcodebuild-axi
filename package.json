@@ -1,0 +1,65 @@
+{
+  "name": "xcodebuild-axi",
+  "version": "0.1.0",
+  "description": "AXI-compliant xcodebuild wrapper — turns multi-megabyte Xcode build and test transcripts into a few lines of TOON",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arouse/xcodebuild-axi.git"
+  },
+  "keywords": [
+    "xcodebuild",
+    "xcode",
+    "ios",
+    "swift",
+    "cli",
+    "agent",
+    "axi",
+    "toon"
+  ],
+  "bin": {
+    "xcodebuild-axi": "./dist/bin/xcodebuild-axi.js"
+  },
+  "files": [
+    "dist",
+    "skills/xcodebuild-axi",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx bin/xcodebuild-axi.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build:skill": "tsx scripts/build-skill.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.1.0",
+    "axi-sdk-js": "^0.1.10"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.1.0",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^3.0.0"
+  }
+}

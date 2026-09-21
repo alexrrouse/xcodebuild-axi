@@ -1,0 +1,99 @@
+# Project agent memory
+
+Durable, project-intrinsic notes for this repository: the xcodebuild behaviors
+this tool exists to paper over, and the decisions that are not obvious from the
+code. Add to it as real work turns up new sharp edges.
+
+## What this tool is
+
+An [AXI](https://axi.md/) — an agent-facing CLI built to the ten principles in
+`kunchenguid/axi`'s `SKILL.md`. Output is TOON on stdout, errors are data, and
+the no-argument view shows live state rather than help text. When changing
+output shape, re-read those principles first; several non-obvious choices here
+(capped lists with explicit totals, `help[]` on lists and mutations but not on
+detail views, exit code 2 reserved for usage errors) come straight from them.
+
+Built on `axi-sdk-js`, which owns top-level dispatch, `--help`/`--version`,
+TOON serialization, EPIPE handling, the `update` built-in, and hook
+installation for Claude Code, Codex, and OpenCode. `src/cli.ts` registers no
+`update` command of its own and gets one for free. The SDK also injects the
+`bin:` and `description:` header into the home view at runtime, so
+`commands/home.ts` must not print them itself.
+
+## The result bundle is the source of truth, not the transcript
+
+Every build and test runs with `-resultBundlePath` and reports from the bundle
+via `xcresulttool`, never by grepping the log. The transcript is streamed
+straight to a file and never read into memory — a single passing test run
+measured 549 KB, and a full verify run of the same repo 2.5 MB.
+
+`src/xcresult.ts` owns every read. Two things there are easy to get wrong:
+
+- **`sourceURL` line and column numbers are zero-based.** A diagnostic at
+  `StartingLineNumber=165` is on line 166 as any editor counts it. Verified
+  against a real build. Sending an agent to the wrong line is worse than
+  sending it nowhere, so the `+1` lives in `parseSourceURL` and nowhere else.
+- **`TestFailure` carries no `sourceURL`** — only `testName`, `targetName`,
+  `failureText`, and `testIdentifierString`. Per-failure source locations need
+  `xcresulttool get test-results test-details`, which is a drill-down, not
+  something the summary can provide.
+
+## xcodebuild failures that produce no usable bundle
+
+When xcodebuild dies _before_ it builds anything — an unknown scheme, an
+unmatched destination, a missing signing team — the result bundle it writes
+records only `"xcodebuild encountered an error (65)"` with
+`status: notRequested`. The transcript is the only witness.
+
+Both `build` and `test` therefore fall back to `mapXcodebuildError()` on the
+transcript tail whenever the bundle reports a failure with zero errors. Do not
+remove that fallback believing the bundle is always sufficient; it is not.
+
+## Sharp edges in xcodebuild itself
+
+- **It refuses to overwrite a result bundle.** A second run against the same
+  path dies with `error: Existing file at -resultBundlePath` before running
+  anything. `runBuild` clears the bundle first — the bundle is our artifact,
+  not the user's.
+- **The preamble is unconditional.** Every invocation, including read-only
+  ones, reprints the command line, `Resolve Package Graph`, and the full
+  resolved package list. In a workspace with 16 local packages that is ~1.2 KB
+  in front of a 349-byte answer. `stripPreamble()` removes it; `-list -json`
+  avoids it entirely, which is why `src/scheme.ts` uses the JSON form.
+- **A Swift package has no container to pass.** xcodebuild synthesizes an
+  implicit workspace from `Package.swift` in the _working directory_, so the
+  runner must never `cd` away from the caller's directory.
+- **`-skipMacroValidation` is not optional unattended.** Macro validation is an
+  interactive trust prompt in disguise and fails the build outright without it.
+- **Simulator names are not unique.** Two runtimes routinely publish an
+  "iPhone 17 Pro", and a `name=`-based destination silently resolves to
+  whichever xcodebuild sees first. `src/destination.ts` always resolves to a
+  udid, and the reported destination is read back out of the bundle so a pass
+  is never attributed to the wrong OS.
+
+## Where artifacts go
+
+`~/Library/Caches/xcodebuild-axi/<project-name>-<sha256(path)[0:8]>/`. Never
+the repository: running this tool must not dirty a working tree or require a
+`.gitignore` entry. The hash keys on the absolute project path so two checkouts
+of the same repo do not collide. Both `build` and `test` print the absolute log
+and bundle paths, so nothing is hidden by being out of the way.
+
+## Exit codes
+
+`0` success, `1` the build or tests failed, `2` usage error. A failed build is
+not a tool error — the full report still goes to stdout — but the agent asked
+for a build and did not get one, so `&&` chains and CI must stop. The non-zero
+status is set on `process.exitCode` by the command, after the report is
+rendered.
+
+## Output shape gotchas
+
+TOON quotes any scalar containing a comma, a colon, or a quote, and the quotes
+cost more than the punctuation saved. So:
+
+- Error messages use `'single quotes'` around names and an em dash instead of a
+  colon.
+- Lists of names are passed to `renderFields` as **arrays**, which TOON renders
+  inline and unquoted (`schemes[12]: A,B,C`), rather than as a comma-joined
+  string, which it would quote.

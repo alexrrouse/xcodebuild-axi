@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # macOS, because this package declares `"os": ["darwin"]` and the
+    # integration tests shell out to a real xcodebuild.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # The skill is generated from the CLI's own help text, so a flag change
+      # that skips the regeneration would ship a skill describing a CLI that no
+      # longer exists.
+      - name: Skill is not stale
+        run: npx tsx scripts/build-skill.ts --check
