@@ -60,10 +60,29 @@ publishes to npm with provenance, and opens the GitHub release. Update the
 `## [Unreleased]` section of `CHANGELOG.md` before tagging — nothing generates
 it.
 
-Publishing needs an `NPM_TOKEN` repository secret with publish rights. The
-provenance attestation additionally needs `id-token: write`, which the workflow
-declares; it is what lets npm show the package was built from this repository
-rather than someone's laptop.
+Publishing uses **npm trusted publishing**, not a token. There is no
+`NPM_TOKEN` secret and there should not be one: the alternative was a granular
+token with "bypass 2FA" ticked, which npm's own UI warns against for CI. npm
+authenticates the workflow over OIDC instead, which is why `id-token: write` is
+declared — that permission is the whole credential.
+
+Two things that are easy to get wrong here:
+
+- **It needs npm >= 11.5.1**, and the macos-15 image's Node 22 ships 10.9.8.
+  An older npm does not recognize the OIDC environment, falls back to looking
+  for a registry token, and fails. The workflow upgrades npm before `npm ci`.
+- **Provenance is automatic** under trusted publishing. Passing `--provenance`
+  is unnecessary; npm generates the attestation either way.
+
+The trusted publisher is configured on npmjs.com against the organization
+`alexrrouse`, the repository `xcodebuild-axi`, and the workflow filename
+`release.yml`. **Renaming `release.yml` breaks publishing** until that field is
+updated to match.
+
+0.1.0 predates this and was published by hand, so it carries no provenance
+attestation — a granular token cannot be scoped to a package that does not
+exist yet, which is the bootstrap problem trusted publishing cannot solve
+either.
 
 `src/version.ts` reads the version out of `package.json` at runtime instead of
 hardcoding it, so `--version` cannot drift from the published version. That

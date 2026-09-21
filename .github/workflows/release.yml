@@ -9,7 +9,7 @@ on:
 
 permissions:
   contents: write # create the GitHub release
-  id-token: write # npm provenance
+  id-token: write # authenticates the npm publish over OIDC
 
 jobs:
   release:
@@ -24,6 +24,13 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing authenticates over OIDC, which needs npm >= 11.5.1.
+      # The macos-15 image's Node 22 ships npm 10.9.8, which does not know how
+      # to use the OIDC token and falls back to looking for a registry token
+      # that deliberately no longer exists.
+      - name: npm new enough for trusted publishing
+        run: npm install -g npm@latest
 
       - run: npm ci
 
@@ -72,20 +79,25 @@ jobs:
           test "$(./node_modules/.bin/xcodebuild-axi --version)" = "${GITHUB_REF_NAME#v}"
           ./node_modules/.bin/xcodebuild-axi info
 
-      # Skipping an already-published version makes a release re-runnable
-      # after a failure in a later step, and covers the bootstrap case: 0.1.0
-      # was published by hand because an npm granular token cannot be scoped to
-      # a package that does not exist yet.
+      # No NPM_TOKEN by design. This publishes over OIDC via npm trusted
+      # publishing, configured on npmjs.com against this repository and this
+      # workflow filename — so renaming this file breaks publishing until that
+      # setting is updated. The alternative was a granular token with "bypass
+      # 2FA" ticked, which npm's own UI warns against for CI. Provenance is
+      # automatic under trusted publishing; --provenance is not needed.
+      #
+      # Skipping a version already on the registry makes a release re-runnable
+      # after a failure in a later step, and covered the bootstrap case: 0.1.0
+      # was published by hand, since neither a scoped token nor a trusted
+      # publisher can be configured for a package that does not exist yet.
       - name: Publish to npm
         run: |
           version="${GITHUB_REF_NAME#v}"
           if npm view "xcodebuild-axi@${version}" version >/dev/null 2>&1; then
             echo "xcodebuild-axi@${version} is already on npm - skipping publish"
           else
-            npm publish --provenance --access public
+            npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: GitHub release
         run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
