@@ -6,6 +6,29 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- `export --upload` writes `destination: upload` into the generated options
+  plist, so a CI ship can hand the build to App Store Connect instead of
+  writing an `.ipa` nobody collects. Without it, `--method` could only ever
+  produce a file on disk and every uploading pipeline had to author the XML by
+  hand — which is the side quest `--method` exists to remove.
+- `export --no-manage-version` sets `manageAppVersionAndBuildNumber` to
+  `false`. Xcode's default is to re-pick the build number at upload, which
+  discards a number set at archive time and, with it, any way to tell which
+  commit a build came from.
+- `export --no-upload-symbols` reaches `uploadSymbols`, which the plist builder
+  already supported and no flag could set.
+
+### Fixed
+
+- A successful upload no longer reports `products: 0 files written to …`. An
+  upload leaves nothing on disk by design, so the warning meant for a silently
+  wrong options plist was calling a delivered build a broken export. It now
+  says the build was sent — and it decides by reading the plist back rather
+  than by trusting the flag, so a hand-written `--options` plist that uploads
+  is reported correctly too.
+
 ## [0.1.5] - 2026-09-21
 
 ### Added

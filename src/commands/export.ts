@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AxiError, mapXcodebuildError } from "../errors.js";
@@ -27,11 +33,14 @@ import { getFlag, hasFlag, positionals, rejectUnknownFlags } from "../args.js";
 
 export const EXPORT_HELP = `usage: xcodebuild-axi export <path.xcarchive> [flags]
 Exports a built archive into a distributable product.
-flags[11]:
+flags[14]:
   --method <name>         ${EXPORT_METHODS.join(", ")}
   --team <id>             Developer team ID to sign with
   --options <path>        a hand-written export options plist, instead of --method
   --output <path>         where to write the export (default: the tool's cache)
+  --upload                send the build to App Store Connect instead of writing it to disk
+  --no-manage-version     keep the archive's own version and build number
+  --no-upload-symbols     do not send dSYMs with the build
   --notarized             export an archive Apple has already notarized
   --allow-provisioning    let xcodebuild fetch profiles from the developer portal
   --signing-style <name>  manual or automatic
@@ -39,9 +48,14 @@ ${AUTH_FLAG_HELP}
 note:
   --method writes the export options plist for you, which is otherwise an XML
   file you have to author by hand. Pass --options to supply your own instead.
+  --upload is the difference between an .ipa on disk and a build in App Store
+  Connect; with it there are no products to list, which is success, not an
+  empty export. --no-manage-version matters whenever the build number is set
+  at archive time, because Xcode otherwise picks its own at upload.
 examples:
   xcodebuild-axi export build/MyApp.xcarchive --method release-testing
   xcodebuild-axi export build/MyApp.xcarchive --method app-store-connect --team ABCDE12345
+  xcodebuild-axi export build/MyApp.xcarchive --method app-store-connect --upload --no-manage-version
   xcodebuild-axi export build/MyApp.xcarchive --options ExportOptions.plist
 `;
 
@@ -50,6 +64,9 @@ const FLAGS = [
   "--team",
   "--options",
   "--output",
+  "--upload",
+  "--no-manage-version",
+  "--no-upload-symbols",
   "--notarized",
   "--allow-provisioning",
   "--signing-style",
@@ -113,6 +130,18 @@ export async function exportCommand(args: string[]): Promise<string> {
     );
   }
 
+  const uploading = hasFlag(args, "--upload");
+  if (uploading && optionsPath !== undefined) {
+    throw new AxiError(
+      "--upload has nothing to write to when --options supplies the plist",
+      "VALIDATION_ERROR",
+      [
+        "add `<key>destination</key><string>upload</string>` to your own plist",
+        "or drop --options and let --method write one",
+      ],
+    );
+  }
+
   const project = requireProject();
   const outputPath =
     getFlag(args, "--output") ??
@@ -120,6 +149,14 @@ export async function exportCommand(args: string[]): Promise<string> {
 
   const plistPath =
     optionsPath ?? (method ? writeGeneratedPlist(args, method) : undefined);
+
+  // An upload leaves nothing on disk, so the empty-export warning below would
+  // call a successful ship a silently wrong options plist. Read it back rather
+  // than trusting the flag: --options supplies a plist this command did not
+  // write, and uploading is the usual reason to bring one.
+  const sendsToAppStoreConnect =
+    uploading ||
+    (plistPath !== undefined && plistUploads(readFileSync(plistPath, "utf8")));
 
   const run = await runBuild({
     args: [
@@ -158,6 +195,7 @@ export async function exportCommand(args: string[]): Promise<string> {
       export: succeeded ? "succeeded" : "failed",
       archive: tildePath(archivePath),
       ...(method ? { method } : {}),
+      ...(sendsToAppStoreConnect ? { destination: "App Store Connect" } : {}),
       ...(info?.bundleIdentifier ? { bundle_id: info.bundleIdentifier } : {}),
       ...(info?.marketingVersion ? { version: info.marketingVersion } : {}),
       duration: duration(run.seconds),
@@ -167,6 +205,10 @@ export async function exportCommand(args: string[]): Promise<string> {
   if (products.length > 0) {
     blocks.push(renderFields({ products }));
     blocks.push(renderFields({ output: tildePath(outputPath) }));
+  } else if (succeeded && sendsToAppStoreConnect) {
+    // Nothing on disk is the whole point here, so saying "0 files written"
+    // would report a delivered build as a broken one.
+    blocks.push(renderFields({ uploaded: "the build was sent, not written" }));
   } else if (succeeded) {
     // Exit zero with an empty export directory is the shape a silently wrong
     // options plist produces; say so rather than implying a product exists.
@@ -194,20 +236,42 @@ export async function exportCommand(args: string[]): Promise<string> {
   return renderOutput(blocks);
 }
 
+export function generatedPlistOptions(
+  args: string[],
+  method: string,
+): Parameters<typeof exportOptionsPlist>[0] {
+  const team = getFlag(args, "--team");
+  const signingStyle = getFlag(args, "--signing-style");
+  return {
+    method,
+    ...(hasFlag(args, "--upload") ? { destination: "upload" } : {}),
+    ...(team !== undefined ? { teamID: team } : {}),
+    ...(signingStyle !== undefined ? { signingStyle } : {}),
+    ...(hasFlag(args, "--no-upload-symbols") ? { uploadSymbols: false } : {}),
+    ...(hasFlag(args, "--no-manage-version")
+      ? { manageAppVersionAndBuildNumber: false }
+      : {}),
+  };
+}
+
 function writeGeneratedPlist(args: string[], method: string): string {
   const dir = mkdtempSync(join(tmpdir(), "xcodebuild-axi-export-"));
   const path = join(dir, "ExportOptions.plist");
-  const team = getFlag(args, "--team");
-  const signingStyle = getFlag(args, "--signing-style");
-  writeFileSync(
-    path,
-    exportOptionsPlist({
-      method,
-      ...(team !== undefined ? { teamID: team } : {}),
-      ...(signingStyle !== undefined ? { signingStyle } : {}),
-    }),
-  );
+  writeFileSync(path, exportOptionsPlist(generatedPlistOptions(args, method)));
   return path;
+}
+
+/**
+ * Does this plist upload rather than write a product?
+ *
+ * Asked of a hand-written `--options` file too, because the empty-export
+ * warning below is wrong in exactly the same way for one of those — and a
+ * plist that uploads is the common reason someone brings their own.
+ */
+export function plistUploads(contents: string): boolean {
+  return /<key>\s*destination\s*<\/key>\s*<string>\s*upload\s*<\/string>/i.test(
+    contents,
+  );
 }
 
 function listProducts(outputPath: string): string[] {
