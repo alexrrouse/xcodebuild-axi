@@ -19,6 +19,7 @@ import {
   AUTH_FLAG_HELP,
   AUTH_VALUE_FLAGS,
 } from "../auth.js";
+import { artifactsDirFrom } from "../action.js";
 import { requireProject } from "../context.js";
 import { artifactDir, runBuild } from "../xcodebuild.js";
 import { transcriptTail } from "../report.js";
@@ -33,11 +34,12 @@ import { getFlag, hasFlag, positionals, rejectUnknownFlags } from "../args.js";
 
 export const EXPORT_HELP = `usage: xcodebuild-axi export <path.xcarchive> [flags]
 Exports a built archive into a distributable product.
-flags[14]:
+flags[15]:
   --method <name>         ${EXPORT_METHODS.join(", ")}
   --team <id>             Developer team ID to sign with
   --options <path>        a hand-written export options plist, instead of --method
   --output <path>         where to write the export (default: the tool's cache)
+  --artifacts-dir <path>  where to write this run's log (default: the tool's cache)
   --upload                send the build to App Store Connect instead of writing it to disk
   --no-manage-version     keep the archive's own version and build number
   --no-upload-symbols     do not send dSYMs with the build
@@ -59,11 +61,12 @@ examples:
   xcodebuild-axi export build/MyApp.xcarchive --options ExportOptions.plist
 `;
 
-const FLAGS = [
+export const EXPORT_FLAGS = [
   "--method",
   "--team",
   "--options",
   "--output",
+  "--artifacts-dir",
   "--upload",
   "--no-manage-version",
   "--no-upload-symbols",
@@ -73,19 +76,20 @@ const FLAGS = [
   ...AUTH_FLAGS,
 ] as const;
 
-const VALUE_FLAGS = [
+export const EXPORT_VALUE_FLAGS = [
   "--method",
   "--team",
   "--options",
   "--output",
+  "--artifacts-dir",
   "--signing-style",
   ...AUTH_VALUE_FLAGS,
 ] as const;
 
 export async function exportCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "export", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "export", EXPORT_FLAGS, EXPORT_VALUE_FLAGS);
 
-  const [rawArchive] = positionals(args, VALUE_FLAGS);
+  const [rawArchive] = positionals(args, EXPORT_VALUE_FLAGS);
   if (rawArchive === undefined) {
     throw new AxiError(
       "export needs a path to an .xcarchive",
@@ -143,6 +147,7 @@ export async function exportCommand(args: string[]): Promise<string> {
   }
 
   const project = requireProject();
+  const artifactsDir = artifactsDirFrom(args);
   const outputPath =
     getFlag(args, "--output") ??
     join(artifactDir(project), `${basenameOf(archivePath)}-export`);
@@ -173,6 +178,7 @@ export async function exportCommand(args: string[]): Promise<string> {
     ],
     label: `${basenameOf(archivePath)}-export`,
     project,
+    ...(artifactsDir !== undefined ? { outDir: artifactsDir } : {}),
   });
 
   const succeeded = run.exitCode === 0;

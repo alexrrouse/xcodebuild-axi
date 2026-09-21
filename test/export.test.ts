@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { exportOptionsPlist } from "../src/archive.js";
-import { generatedPlistOptions, plistUploads } from "../src/commands/export.js";
+import {
+  EXPORT_FLAGS,
+  EXPORT_HELP,
+  EXPORT_VALUE_FLAGS,
+  generatedPlistOptions,
+  plistUploads,
+} from "../src/commands/export.js";
+import { positionals, rejectUnknownFlags } from "../src/args.js";
 
 /**
  * The export options plist is the only place a CI ship can say "upload this"
@@ -95,5 +102,47 @@ describe("recognising an upload in a plist", () => {
     expect(plistUploads("<key>method</key><string>upload</string>")).toBe(
       false,
     );
+  });
+});
+
+/**
+ * `export` was the one command on a release pipeline that could not say where
+ * its log went — build, archive and test all gained `--artifacts-dir`, and the
+ * command that actually talks to App Store Connect was left writing into the
+ * tool's own cache, where CI's artifact upload never looks.
+ */
+describe("export --artifacts-dir", () => {
+  it("is a value flag, so the path is not read as the archive", () => {
+    expect(EXPORT_HELP).toContain("--artifacts-dir <path>");
+  });
+
+  it("declines an unknown flag rather than ignoring it", () => {
+    expect(() =>
+      rejectUnknownFlags(
+        ["--artifacts-dir", "build/x"],
+        "export",
+        EXPORT_FLAGS,
+        EXPORT_VALUE_FLAGS,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      rejectUnknownFlags(
+        ["--artifacts-directory", "build/x"],
+        "export",
+        EXPORT_FLAGS,
+        EXPORT_VALUE_FLAGS,
+      ),
+    ).toThrow();
+  });
+
+  // A value flag that isn't declared as one gets its path read as the
+  // positional archive path, which fails as "No archive at build/logs".
+  it("does not swallow the archive path", () => {
+    expect(
+      positionals(
+        ["--artifacts-dir", "build/logs", "MyApp.xcarchive"],
+        EXPORT_VALUE_FLAGS,
+      ),
+    ).toEqual(["MyApp.xcarchive"]);
   });
 });

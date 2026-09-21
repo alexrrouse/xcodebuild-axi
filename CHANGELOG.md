@@ -6,6 +6,14 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- `export --artifacts-dir <path>` — the flag `build`, `archive` and `test`
+  gained in 0.1.5, on the one command a release pipeline cannot do without.
+  Its log went to the tool's cache regardless, so a failed upload left its
+  transcript exactly where CI's artifact step does not look. The command that
+  talks to App Store Connect was the worst one to leave behind.
+
 ### Added
 
 - `export --upload` writes `destination: upload` into the generated options
