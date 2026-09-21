@@ -10,6 +10,18 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint 8's peer range is `>=4.8.4 <6.1.0`, so TypeScript 7
+      # fails `npm ci` outright and takes the whole grouped PR down with it.
+      # Revisit when typescript-eslint ships a release that accepts 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # @types/node should describe the oldest Node this package supports
+      # (`engines` says 20), not the newest released. Tracking latest lets code
+      # that only exists in a newer Node typecheck here and then fail for a
+      # user on the version we claim to support.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
