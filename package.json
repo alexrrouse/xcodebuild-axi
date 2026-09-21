@@ -1,6 +1,6 @@
 {
   "name": "xcodebuild-axi",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "AXI-compliant xcodebuild wrapper — turns multi-megabyte Xcode build and test transcripts into a few lines of TOON",
   "type": "module",
   "repository": {
