@@ -9,7 +9,7 @@ description: >
 
 # xcodebuild-axi
 
-Agent-ergonomic wrapper around xcodebuild. Prefer this over raw `xcodebuild` for building, testing, and inspecting Xcode projects.
+Agent-ergonomic wrapper around xcodebuild. Prefer it over raw `xcodebuild` for any build / test / inspect of an Xcode project.
 
 Run it with no arguments first — it reports the project in front of you, its
 schemes, and how the last run went.
@@ -22,8 +22,12 @@ npx -y xcodebuild-axi
 
 ```
 usage: xcodebuild-axi [command] [flags]
-commands[8]:
-  (none)=dashboard, build, test, schemes, destinations, settings, result, setup
+commands[22]:
+  (none)=dashboard
+  build, test, tests, clean, analyze, archive, export
+  schemes, destinations, testplans, settings, packages, info
+  result, coverage, sim, platforms, setup
+  localize, xcframework, find
 flags[2]:
   --help, -v/-V/--version
 env[2]:
@@ -34,7 +38,7 @@ exit:
 examples:
   xcodebuild-axi
   xcodebuild-axi build --scheme Futures
-  xcodebuild-axi test --scheme Futures --device "iPhone 17 Pro"
+  xcodebuild-axi test --scheme Futures --device "iPhone 17 Pro" --coverage
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER
   xcodebuild-axi setup hooks
 ```

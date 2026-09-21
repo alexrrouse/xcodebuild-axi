@@ -79,7 +79,8 @@ export interface BuildRunOptions {
   args: string[];
   /** Filename stem for the log and result bundle, e.g. "Futures-iPhone-17-Pro". */
   label: string;
-  project: ProjectContext;
+  /** Omit for invocations that act on the toolchain rather than a project. */
+  project?: ProjectContext;
   /** Overrides the cache location for both artifacts. */
   outDir?: string;
 }
@@ -93,7 +94,9 @@ export interface BuildRunOptions {
  * KB are kept in memory, for the failures that produce no result bundle.
  */
 export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
-  const dir = options.outDir ?? artifactDir(options.project);
+  const dir =
+    options.outDir ??
+    (options.project ? artifactDir(options.project) : globalArtifactDir());
   mkdirSync(dir, { recursive: true });
 
   const logPath = join(dir, `${options.label}.log`);
@@ -150,6 +153,14 @@ export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
       );
     });
   });
+}
+
+/**
+ * Where toolchain-level runs land — platform downloads and the like, which
+ * belong to the machine rather than to any one project.
+ */
+export function globalArtifactDir(): string {
+  return join(homedir(), "Library", "Caches", "xcodebuild-axi", "toolchain");
 }
 
 /**

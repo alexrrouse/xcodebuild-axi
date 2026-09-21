@@ -65,11 +65,48 @@ remove that fallback believing the bundle is always sufficient; it is not.
   runner must never `cd` away from the caller's directory.
 - **`-skipMacroValidation` is not optional unattended.** Macro validation is an
   interactive trust prompt in disguise and fails the build outright without it.
+- **`-enumerate-tests` needs the `test` action.** With only
+  `build-for-testing` it writes no enumeration file and exits zero, so
+  `src/commands/tests.ts` passes `test` and stops before running anything.
+- **`-resolvePackageDependencies` needs a scheme against a workspace.** It
+  fails with "If you specify a workspace then you must also specify a scheme"
+  only after loading the whole workspace, so `packages --resolve` resolves one
+  up front.
+- **`-showBuildSettingsForIndex` is a different query, not a variant.** It
+  returns `{target: {sourceFile: {indexSettings}}}` — the compiler invocation
+  per source file, including the entire Swift driver command line. Measured
+  216 KB on a 12-scheme workspace, so `settings --for-index` reports the shape
+  and requires `--file` to print one file's settings.
+- **`-find-library` searches the toolchain's `usr/lib`, not the SDK.** Passing
+  `libz.tbd -sdk iphoneos` fails; passing `libLTO.dylib` works.
+- **Platform and component operations need `sudo` for some components.** They
+  also download gigabytes, so `platforms` streams them to a log like a build
+  rather than buffering.
 - **Simulator names are not unique.** Two runtimes routinely publish an
   "iPhone 17 Pro", and a `name=`-based destination silently resolves to
   whichever xcodebuild sees first. `src/destination.ts` always resolves to a
   udid, and the reported destination is read back out of the bundle so a pass
   is never attributed to the wrong OS.
+
+## Coverage of xcodebuild's surface is declared, not guessed
+
+`src/surface.ts` classifies every option `xcodebuild -help` prints as
+`exposed` (an `xcodebuild-axi` flag reaches it), `always` (the tool sets it for
+you), or `n/a` (deliberately not wrapped, with the reason stated).
+`scripts/coverage.ts` reads the denominator from the installed
+`xcodebuild -help`, computes the percentage, and rewrites the README section
+between the `<!-- coverage:start -->` markers.
+
+`npm run coverage:check` fails three ways, and CI runs it: a stale README, an
+option this xcodebuild lists that the map has never classified (a new Xcode
+shipped one), and an option the map still claims that xcodebuild has dropped.
+`n/a` options stay in the denominator on purpose — declining to wrap something
+should cost the number something.
+
+Adding a flag therefore means three edits: the command, `src/surface.ts`, and
+`npm run coverage`. The help text's own `flags[N]:` count is checked by
+`test/help.test.ts`, so a forgotten count fails the suite rather than shipping
+a TOON array that lies about its length.
 
 ## Where artifacts go
 

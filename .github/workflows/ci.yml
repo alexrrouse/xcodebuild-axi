@@ -44,3 +44,9 @@ jobs:
       # longer exists.
       - name: Skill is not stale
         run: npx tsx scripts/build-skill.ts --check
+
+      # Fails three ways: a stale README percentage, an option the runner's
+      # xcodebuild lists that src/surface.ts has never classified (a new Xcode
+      # shipped one), and an option the map still claims xcodebuild dropped.
+      - name: Coverage map matches this xcodebuild
+        run: npm run coverage:check

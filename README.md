@@ -4,6 +4,7 @@
   <a href="https://www.npmjs.com/package/xcodebuild-axi"><img alt="npm" src="https://img.shields.io/npm/v/xcodebuild-axi?style=flat-square" /></a>
   <a href="https://axi.md/"><img alt="AXI" src="https://img.shields.io/badge/AXI-compliant-blue?style=flat-square" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square" />
+  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-93.2%25-brightgreen?style=flat-square" /><!-- coverage-badge:end -->
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
@@ -22,7 +23,7 @@ $ xcodebuild-axi test --scheme Futures --device "iPhone 17 Pro"
 test: passed
 scheme: Futures
 destination: iPhone 17 Pro · iOS Simulator 26.5
-tests: 767 passed, 0 failed, 0 skipped
+tests: 767 passed / 0 failed / 0 skipped
 duration: 15m34s
 log: ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Futures-iPhone-17-Pro-test.log
 result: ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Futures-iPhone-17-Pro-test.xcresult
@@ -108,13 +109,50 @@ help[2]:
 | _(none)_       | Dashboard: what is here, what can be built, how the last run went |
 | `build`        | Build a scheme; report only errors, with `file,line,col`          |
 | `test`         | Run tests; report counts and only the failures                    |
+| `tests`        | Enumerate the tests a scheme defines, without running them        |
+| `clean`        | Clean a scheme's build products                                   |
+| `analyze`      | Run the static analyzer; report only what it found                |
+| `archive`      | Archive a scheme and report the archive's bundle id and version   |
+| `export`       | Export an archive, writing the export options plist for you       |
 | `schemes`      | List the schemes in the workspace or project                      |
 | `destinations` | List the destinations a scheme can actually run on                |
+| `testplans`    | List a scheme's test plans                                        |
 | `settings`     | Read named build settings instead of dumping all 400              |
+| `packages`     | Read the pinned Swift package versions; resolve them on request   |
+| `info`         | Xcode version, SDKs, and what this tool is pointed at             |
 | `result`       | Re-read a previous run's `.xcresult` without rebuilding           |
+| `coverage`     | Code coverage from a result bundle, per target or per file        |
+| `sim`          | Boot, shut down, and inspect simulators                           |
+| `platforms`    | Installed runtimes, and the downloads that add more               |
+| `localize`     | Export and import XLIFF localization catalogs                     |
+| `xcframework`  | Bundle built frameworks or libraries into an `.xcframework`       |
+| `find`         | Resolve an executable or library to its toolchain path            |
 | `setup`        | Install session-start hooks for Claude Code, Codex, and OpenCode  |
 
 Every command takes `--help`.
+
+## How much of xcodebuild
+
+<!-- coverage:start -->
+
+**Coverage: 93.2% of `xcodebuild` — 109 of its 117 options and 9 of its 10 build actions.**
+
+101 options map to an `xcodebuild-axi` flag; 8 more the tool always sets for you, so there is nothing to pass. The remaining 8 are deliberately not wrapped:
+
+| Option                 | Why not                                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `-convert-project`     | rewrites project files in place — an editor operation, not a build                                                         |
+| `-help`                | `xcodebuild-axi --help` answers the same question in a fraction of the tokens                                              |
+| `-license`             | an interactive sudo prompt, which an AXI must never issue                                                                  |
+| `-quiet`               | verbosity is not a knob here: the full transcript always goes to a log and the summary always comes from the result bundle |
+| `-resultBundleVersion` | the tool owns the bundle and pins the version its reader understands                                                       |
+| `-resultStreamPath`    | a live NSSecureCoding event stream has no agent-readable consumer                                                          |
+| `-usage`               | same as -help                                                                                                              |
+| `-verbose`             | same as -quiet                                                                                                             |
+
+The denominator is read from the `xcodebuild -help` on the machine running `npm run coverage`, and CI fails if a new Xcode adds an option this table has never classified.
+
+<!-- coverage:end -->
 
 ### Destinations you do not have to spell
 

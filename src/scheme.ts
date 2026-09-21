@@ -105,7 +105,7 @@ export async function requireScheme(
   }
 
   throw new AxiError(
-    `--scheme is required — ${project.name} has ${schemes.length} schemes`,
+    `${project.name} has ${schemes.length} schemes — pass --scheme`,
     "VALIDATION_ERROR",
     [
       `xcodebuild-axi ${command} --scheme <name>`,

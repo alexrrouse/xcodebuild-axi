@@ -7,6 +7,7 @@ export type ErrorCode =
   | "DESTINATION_NOT_FOUND"
   | "RESULT_NOT_FOUND"
   | "SIMULATOR_NOT_FOUND"
+  | "NOT_FOUND"
   | "VALIDATION_ERROR"
   | "BUILD_FAILED"
   | "TEST_FAILED"

@@ -1,7 +1,7 @@
 {
   "name": "xcodebuild-axi",
   "version": "0.1.0",
-  "description": "AXI-compliant xcodebuild wrapper — turns multi-megabyte Xcode build and test transcripts into a few lines of TOON",
+  "description": "AXI-compliant xcodebuild wrapper \u2014 turns multi-megabyte Xcode build and test transcripts into a few lines of TOON",
   "type": "module",
   "repository": {
     "type": "git",
@@ -38,7 +38,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build:skill": "tsx scripts/build-skill.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "coverage": "tsx scripts/coverage.ts",
+    "coverage:check": "tsx scripts/coverage.ts --check"
   },
   "license": "MIT",
   "os": [
