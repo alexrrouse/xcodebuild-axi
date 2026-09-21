@@ -6,6 +6,8 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-21
+
 ### Added
 
 - `settings` takes `--device`, `--destination` and `--sdk`. Build settings are
@@ -107,7 +109,8 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.3...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.0...v0.1.1
