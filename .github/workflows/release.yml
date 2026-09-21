@@ -72,8 +72,18 @@ jobs:
           test "$(./node_modules/.bin/xcodebuild-axi --version)" = "${GITHUB_REF_NAME#v}"
           ./node_modules/.bin/xcodebuild-axi info
 
+      # Skipping an already-published version makes a release re-runnable
+      # after a failure in a later step, and covers the bootstrap case: 0.1.0
+      # was published by hand because an npm granular token cannot be scoped to
+      # a package that does not exist yet.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "xcodebuild-axi@${version}" version >/dev/null 2>&1; then
+            echo "xcodebuild-axi@${version} is already on npm - skipping publish"
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
