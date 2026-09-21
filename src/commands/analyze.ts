@@ -12,7 +12,7 @@ export const ANALYZE_HELP = `usage: xcodebuild-axi analyze [flags]
 Runs the static analyzer and reports its findings with exact source locations.
 Analyzer findings are the payload here, not a count — unlike \`build\`, where
 they are noise alongside compiler warnings.
-flags[38]:
+flags[41]:
 ${BUILD_FLAG_HELP}
 exit:
   0 the analyze action succeeded (findings do not fail it), 1 it failed, 2 usage error

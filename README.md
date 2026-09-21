@@ -4,7 +4,7 @@
   <a href="https://www.npmjs.com/package/xcodebuild-axi"><img alt="npm" src="https://img.shields.io/npm/v/xcodebuild-axi?style=flat-square" /></a>
   <a href="https://axi.md/"><img alt="AXI" src="https://img.shields.io/badge/AXI-compliant-blue?style=flat-square" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square" />
-  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-93.2%25-brightgreen?style=flat-square" /><!-- coverage-badge:end -->
+  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-100%25-brightgreen?style=flat-square" /><!-- coverage-badge:end -->
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
@@ -58,20 +58,55 @@ log: ~/Library/Caches/xcodebuild-axi/Probe-9f8e7d6c/Probe-My-Mac-build.log
 
 ## Measured
 
-Against a real 12-scheme iOS workspace with 16 local Swift packages:
+Every number below is produced by `npm run benchmark`, which asks raw
+`xcodebuild` and `xcodebuild-axi` the same question against a real 12-scheme
+iOS workspace with 16 local Swift packages, and tokenizes both answers.
 
-| Command                          | Raw `xcodebuild` | `xcodebuild-axi` |  Saved |
-| -------------------------------- | ---------------: | ---------------: | -----: |
-| `test` (one app, one simulator)  |        549,290 B |           ~250 B | 99.95% |
-| `test` (larger app)              |      1,300,084 B |           ~250 B | 99.98% |
-| `build` (failing, small package) |         21,636 B |           ~350 B |  98.4% |
-| `settings --key A,B,C`           |         40,944 B |            178 B |  99.6% |
-| `destinations`                   |          4,816 B |           ~900 B |    81% |
-| `schemes`                        |          1,565 B |           ~490 B |    69% |
+<!-- benchmark:start -->
 
-Even the read-only commands win, because xcodebuild reprints its invocation,
-`Resolve Package Graph`, and the full resolved package list on _every_ call —
-about 1.2 KB of identical preamble in front of a 349-byte answer.
+| Question                                | `xcodebuild`   | `xcodebuild-axi` | Saved      |
+| --------------------------------------- | -------------- | ---------------- | ---------- |
+| what can I build?                       | 498 tok        | 97 tok           | **80.52%** |
+| what can I run it on?                   | 1,720 tok      | 339 tok          | **80.29%** |
+| what is the bundle id?                  | 12,221 tok     | 21 tok           | **99.83%** |
+| which targets have index settings?      | 61,850 tok     | 42 tok           | **99.93%** |
+| which SDKs are installed?               | 244 tok        | 70 tok           | **71.31%** |
+| which test plans does this scheme have? | 445 tok        | 42 tok           | **90.56%** |
+| **all 6 together**                      | **76,978 tok** | **611 tok**      | **99.21%** |
+
+Token counts are GPT-4o BPE via `gpt-tokenizer` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by `npm run benchmark` against Tides in a real workspace on 2026-09-21.
+
+<!-- benchmark:end -->
+
+Those are the read-only commands, and they win anyway, because xcodebuild
+reprints its invocation, `Resolve Package Graph`, and the full resolved package
+list on _every_ call — about 1.2 KB of identical preamble in front of a
+349-byte answer.
+
+The `build` and `test` rows are where the margin is widest and are not in the
+table above: they drive a cold build per side and want a quiet machine. Add
+them with
+
+```sh
+npm run benchmark -- --project ~/YourApp --scheme YourScheme --only build --resume --write
+npm run benchmark -- --project ~/YourApp --scheme YourScheme --only test  --resume --write
+```
+
+For scale in the meantime: one `build` of the scheme above wrote a **4.7 MB**
+transcript to its log, and a `test` run of another app in the same workspace
+wrote **432 KB**. Both are reported in well under 400 bytes.
+
+Reproduce any of it yourself:
+
+```sh
+npm run benchmark -- --project ~/YourApp --scheme YourScheme          # everything
+npm run benchmark -- --project ~/YourApp --scheme YourScheme --quick  # skip build and test
+```
+
+Builds and tests get a separate derived-data directory per side, wiped before
+each run, so neither side gets an incremental-build advantage over the other.
+Every scenario is checkpointed as it finishes, so `--resume` picks up whatever
+already ran.
 
 ## Install
 
@@ -127,6 +162,7 @@ help[2]:
 | `localize`     | Export and import XLIFF localization catalogs                     |
 | `xcframework`  | Bundle built frameworks or libraries into an `.xcframework`       |
 | `find`         | Resolve an executable or library to its toolchain path            |
+| `migrate`      | Report the project file format, and convert it to a newer one     |
 | `setup`        | Install session-start hooks for Claude Code, Codex, and OpenCode  |
 
 Every command takes `--help`.
@@ -135,20 +171,24 @@ Every command takes `--help`.
 
 <!-- coverage:start -->
 
-**Coverage: 93.2% of `xcodebuild` — 109 of its 117 options and 9 of its 10 build actions.**
+**Coverage: 100% — every one of the 117 options `xcodebuild -help` lists, and 9 of its 10 build actions.**
 
-101 options map to an `xcodebuild-axi` flag; 8 more the tool always sets for you, so there is nothing to pass. The remaining 8 are deliberately not wrapped:
+107 options map to an `xcodebuild-axi` flag. The other 10 are reachable without one:
 
-| Option                 | Why not                                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `-convert-project`     | rewrites project files in place — an editor operation, not a build                                                         |
-| `-help`                | `xcodebuild-axi --help` answers the same question in a fraction of the tokens                                              |
-| `-license`             | an interactive sudo prompt, which an AXI must never issue                                                                  |
-| `-quiet`               | verbosity is not a knob here: the full transcript always goes to a log and the summary always comes from the result bundle |
-| `-resultBundleVersion` | the tool owns the bundle and pins the version its reader understands                                                       |
-| `-resultStreamPath`    | a live NSSecureCoding event stream has no agent-readable consumer                                                          |
-| `-usage`               | same as -help                                                                                                              |
-| `-verbose`             | same as -quiet                                                                                                             |
+| Option                          | How                                                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `-json`                         | every read-only query asks for JSON, then reports TOON                                         |
+| `-project`                      | set from the .xcodeproj found in the working directory                                         |
+| `-resultBundlePath`             | every action writes a bundle to the tool's cache — that bundle is what the report is read from |
+| `-skipMacroValidation`          | macro trust is an interactive prompt in disguise, and an agent cannot answer it                |
+| `-test-enumeration-format`      | always json, so `tests` can parse it                                                           |
+| `-test-enumeration-output-path` | written to the tool's cache and read back, never printed                                       |
+| `-test-enumeration-style`       | always flat; `tests` does its own grouping by target and suite                                 |
+| `-workspace`                    | set from the .xcworkspace found in the working directory                                       |
+| `-help`                         | `xcodebuild-axi --help`, which answers it in a fraction of the tokens                          |
+| `-usage`                        | `xcodebuild-axi <command> --help`, per command rather than all 117 at once                     |
+
+The one action left out is `installsrc` — it copies sources into `SRCROOT` as root, which is a packaging step rather than anything an agent loop needs.
 
 The denominator is read from the `xcodebuild -help` on the machine running `npm run coverage`, and CI fails if a new Xcode adds an option this table has never classified.
 

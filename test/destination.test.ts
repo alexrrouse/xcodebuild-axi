@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { destinationSlug, parseDestinationLine } from "../src/destination.js";
+import {
+  destinationSlug,
+  parseDestinationLine,
+  pickDefault,
+  type Destination,
+} from "../src/destination.js";
 
 describe("parseDestinationLine", () => {
   it("reads a simulator row", () => {
@@ -46,5 +51,65 @@ describe("destinationSlug", () => {
     expect(destinationSlug("iPad Pro 11-inch (M5) · 26.5")).toBe(
       "iPad-Pro-11-inch-M5-26-5",
     );
+  });
+});
+
+describe("pickDefault", () => {
+  const destination = (
+    platform: string,
+    name: string,
+    os: string,
+  ): Destination => ({
+    platform,
+    name,
+    os,
+    id: `${name}-${os}`,
+    eligible: true,
+  });
+
+  it("prefers iOS even when another platform has a higher OS number", () => {
+    // The shape a cross-platform Swift package reports.
+    const picked = pickDefault([
+      destination("watchOS Simulator", "Apple Watch SE 3 (40mm)", "26.5"),
+      destination("iOS Simulator", "iPhone 17 Pro", "26.4"),
+    ]);
+    expect(picked.name).toBe("iPhone 17 Pro");
+  });
+
+  it("takes the newest OS within the preferred platform", () => {
+    const picked = pickDefault([
+      destination("iOS Simulator", "iPhone 17", "26.2"),
+      destination("iOS Simulator", "iPhone 17 Pro", "26.5"),
+    ]);
+    expect(picked.os).toBe("26.5");
+  });
+
+  it("falls back to hardware only when no simulator is eligible", () => {
+    const picked = pickDefault([destination("iOS", "Alex's iPhone", "26.5")]);
+    expect(picked.name).toBe("Alex's iPhone");
+  });
+
+  it("breaks a same-OS tie toward an iPhone", () => {
+    const picked = pickDefault([
+      destination("iOS Simulator", "iPad (A16)", "26.5"),
+      destination("iOS Simulator", "iPhone 17 Pro", "26.5"),
+    ]);
+    expect(picked.name).toBe("iPhone 17 Pro");
+  });
+
+  it("still takes the newest OS over the device tiebreak", () => {
+    const picked = pickDefault([
+      destination("iOS Simulator", "iPad (A16)", "26.5"),
+      destination("iOS Simulator", "iPhone 17 Pro", "26.2"),
+    ]);
+    expect(picked.name).toBe("iPad (A16)");
+  });
+
+  it("ranks an unknown platform after the ones it knows", () => {
+    const picked = pickDefault([
+      destination("someOS Simulator", "Future Device", "99.0"),
+      destination("watchOS Simulator", "Apple Watch", "26.5"),
+    ]);
+    expect(picked.name).toBe("Apple Watch");
   });
 });

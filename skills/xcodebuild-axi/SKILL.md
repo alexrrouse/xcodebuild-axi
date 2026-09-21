@@ -22,12 +22,12 @@ npx -y xcodebuild-axi
 
 ```
 usage: xcodebuild-axi [command] [flags]
-commands[22]:
+commands[23]:
   (none)=dashboard
   build, test, tests, clean, analyze, archive, export
   schemes, destinations, testplans, settings, packages, info
   result, coverage, sim, platforms, setup
-  localize, xcframework, find
+  localize, xcframework, find, migrate
 flags[2]:
   --help, -v/-V/--version
 env[2]:

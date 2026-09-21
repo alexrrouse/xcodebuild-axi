@@ -40,7 +40,8 @@
     "build:skill": "tsx scripts/build-skill.ts",
     "prepublishOnly": "npm run build",
     "coverage": "tsx scripts/coverage.ts",
-    "coverage:check": "tsx scripts/coverage.ts --check"
+    "coverage:check": "tsx scripts/coverage.ts --check",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "license": "MIT",
   "os": [
@@ -58,6 +59,7 @@
     "@types/node": "^22.0.0",
     "eslint": "^10.1.0",
     "globals": "^17.4.0",
+    "gpt-tokenizer": "^4.0.0",
     "prettier": "^3.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",

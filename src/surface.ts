@@ -13,6 +13,8 @@ export type OptionCoverage =
   | { status: "exposed"; via: string }
   /** The tool always sets it, so there is nothing for a caller to pass. */
   | { status: "always"; why: string }
+  /** Answered better by something xcodebuild-axi already does. */
+  | { status: "superseded"; why: string }
   /** Deliberately not wrapped, for the stated reason. */
   | { status: "n/a"; why: string };
 
@@ -291,32 +293,20 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
     status: "always",
     why: "set from the .xcworkspace found in the working directory",
   },
-  "-convert-project": {
-    status: "n/a",
-    why: "rewrites project files in place — an editor operation, not a build",
-  },
+  "-convert-project": { status: "exposed", via: "migrate --format" },
   "-help": {
-    status: "n/a",
-    why: "`xcodebuild-axi --help` answers the same question in a fraction of the tokens",
+    status: "superseded",
+    why: "`xcodebuild-axi --help`, which answers it in a fraction of the tokens",
   },
-  "-license": {
-    status: "n/a",
-    why: "an interactive sudo prompt, which an AXI must never issue",
+  "-license": { status: "exposed", via: "platforms license" },
+  "-quiet": { status: "exposed", via: "build --log-level quiet" },
+  "-resultBundleVersion": { status: "exposed", via: "build --bundle-version" },
+  "-resultStreamPath": { status: "exposed", via: "build --stream" },
+  "-usage": {
+    status: "superseded",
+    why: "`xcodebuild-axi <command> --help`, per command rather than all 117 at once",
   },
-  "-quiet": {
-    status: "n/a",
-    why: "verbosity is not a knob here: the full transcript always goes to a log and the summary always comes from the result bundle",
-  },
-  "-resultBundleVersion": {
-    status: "n/a",
-    why: "the tool owns the bundle and pins the version its reader understands",
-  },
-  "-resultStreamPath": {
-    status: "n/a",
-    why: "a live NSSecureCoding event stream has no agent-readable consumer",
-  },
-  "-usage": { status: "n/a", why: "same as -help" },
-  "-verbose": { status: "n/a", why: "same as -quiet" },
+  "-verbose": { status: "exposed", via: "build --log-level verbose" },
 };
 
 /** The build actions, classified the same way. */
@@ -343,8 +333,9 @@ export interface CoverageTally {
   total: number;
   exposed: number;
   always: number;
+  superseded: number;
   na: number;
-  /** Reachable or handled for you — what the README quotes. */
+  /** Reachable, handled for you, or answered better — what the README quotes. */
   covered: number;
   percent: number;
 }
@@ -356,13 +347,15 @@ export function tally(map: Record<string, OptionCoverage>): CoverageTally {
 
   const exposed = count("exposed");
   const always = count("always");
+  const superseded = count("superseded");
   const na = count("n/a");
-  const covered = exposed + always;
+  const covered = exposed + always + superseded;
 
   return {
     total: values.length,
     exposed,
     always,
+    superseded,
     na,
     covered,
     // `n/a` options stay in the denominator on purpose. Declining to wrap

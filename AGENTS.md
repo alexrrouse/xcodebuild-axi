@@ -82,17 +82,35 @@ remove that fallback believing the bundle is always sufficient; it is not.
 - **Platform and component operations need `sudo` for some components.** They
   also download gigabytes, so `platforms` streams them to a log like a build
   rather than buffering.
+- **`-resultStreamPath` refuses a file that does not already exist.** An odd
+  contract to hand to a caller, so `--stream` creates the file first.
+- **`-license check` is the non-interactive half of `-license`.** Bare
+  `-license` pages the agreement and then asks for sudo; `check` exits 0 when
+  the license is accepted and prints nothing. `platforms license` uses `check`
+  and never attempts the accept — that needs a terminal this tool does not have.
+- **`-convert-project` validates the format before touching the project**, and
+  the only place it prints the valid formats is inside that rejection. So
+  `migrate` asks for an impossible format to read the list, which is safe.
 - **Simulator names are not unique.** Two runtimes routinely publish an
   "iPhone 17 Pro", and a `name=`-based destination silently resolves to
   whichever xcodebuild sees first. `src/destination.ts` always resolves to a
   udid, and the reported destination is read back out of the bundle so a pass
   is never attributed to the wrong OS.
+- **A cross-platform Swift package is eligible for every platform it
+  supports.** Sorting those by OS version alone lands on whichever carries the
+  highest number — a watchOS build for a package nobody was thinking about
+  watchOS for, observed on a plain SPM target. `pickDefault` ranks platform
+  first (iOS, then tvOS, visionOS, watchOS), then OS version, then prefers an
+  iPhone over an iPad on a tie.
 
 ## Coverage of xcodebuild's surface is declared, not guessed
 
 `src/surface.ts` classifies every option `xcodebuild -help` prints as
 `exposed` (an `xcodebuild-axi` flag reaches it), `always` (the tool sets it for
-you), or `n/a` (deliberately not wrapped, with the reason stated).
+you), `superseded` (answered better by something this tool already does — only
+`-help` and `-usage`), or `n/a` (deliberately not wrapped, with the reason
+stated). All 117 are currently covered; `installsrc` is the one build action
+left out.
 `scripts/coverage.ts` reads the denominator from the installed
 `xcodebuild -help`, computes the percentage, and rewrites the README section
 between the `<!-- coverage:start -->` markers.
@@ -107,6 +125,35 @@ Adding a flag therefore means three edits: the command, `src/surface.ts`, and
 `npm run coverage`. The help text's own `flags[N]:` count is checked by
 `test/help.test.ts`, so a forgotten count fails the suite rather than shipping
 a TOON array that lies about its length.
+
+## `migrate` is the one command that edits tracked files
+
+Everything else here writes only to `~/Library/Caches`. `migrate --format`
+rewrites the `.pbxproj` in place, so it requires `--yes` on top of `--format`
+and says so in both its help and its refusal. Do not relax that to a single
+flag: an agent cannot undo it for the user, and the diff lands in their repo.
+
+## Savings are measured, not asserted
+
+`scripts/benchmark.ts` runs raw `xcodebuild` and `xcodebuild-axi` against the
+same question in a real project and tokenizes both answers, then writes the
+table into the README between the `<!-- benchmark:start -->` markers. Token
+counts use GPT-4o BPE via `gpt-tokenizer`, since Anthropic's tokenizer is not
+public — the ratios are the point, not the absolute numbers.
+
+Two things keep it honest and must not be dropped:
+
+- **Both stdout and stderr are counted**, because that is what an agent running
+  the command in a shell actually reads.
+- **Build and test scenarios get one derived-data directory per side, wiped
+  first.** Otherwise whichever side runs second builds incrementally, prints a
+  fraction of the output, and wins on something that has nothing to do with
+  this tool.
+
+It is deliberately not in CI: it needs a real project and takes minutes. Rerun
+it with `--write` when output shapes change, and treat a scenario that barely
+saves anything as a bug in that command rather than a fact about xcodebuild —
+`info --sdks` was reprinting the whole toolchain header and saving 1.2%.
 
 ## Where artifacts go
 

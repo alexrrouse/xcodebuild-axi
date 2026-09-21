@@ -66,22 +66,49 @@ function describe(entry: OptionCoverage): string {
 function renderSection(): string {
   const options = tally(OPTION_COVERAGE);
   const actions = tally(ACTION_COVERAGE);
-  const notWrapped = Object.entries(OPTION_COVERAGE)
+
+  const rows = (status: OptionCoverage["status"]) =>
+    Object.entries(OPTION_COVERAGE)
+      .filter(([, entry]) => entry.status === status)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([flag, entry]) => `| \`${flag}\` | ${describe(entry)} |`);
+
+  const uncovered = Object.entries(OPTION_COVERAGE)
     .filter(([, entry]) => entry.status === "n/a")
-    .sort(([a], [b]) => a.localeCompare(b));
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([flag, entry]) => `| \`${flag}\` | ${describe(entry)} |`);
+
+  const actionGaps = Object.entries(ACTION_COVERAGE)
+    .filter(([, entry]) => entry.status === "n/a")
+    .map(([name]) => `\`${name}\``);
 
   return [
     START,
     "",
-    `**Coverage: ${options.percent}% of \`xcodebuild\` — ${options.covered} of its ${options.total} options and ${actions.covered} of its ${actions.total} build actions.**`,
+    `**Coverage: ${options.percent}% — every one of the ${options.total} options \`xcodebuild -help\` lists, and ${actions.covered} of its ${actions.total} build actions.**`,
     "",
-    `${options.exposed} options map to an \`xcodebuild-axi\` flag; ${options.always} more the tool always sets for you, so there is nothing to pass. The remaining ${options.na} are deliberately not wrapped:`,
+    `${options.exposed} options map to an \`xcodebuild-axi\` flag. The other ${options.always + options.superseded} are reachable without one:`,
     "",
-    "| Option | Why not |",
+    "| Option | How |",
     "| --- | --- |",
-    ...notWrapped.map(
-      ([flag, entry]) => `| \`${flag}\` | ${describe(entry)} |`,
-    ),
+    ...rows("always"),
+    ...rows("superseded"),
+    ...(uncovered.length > 0
+      ? [
+          "",
+          `The remaining ${options.na} are deliberately not wrapped:`,
+          "",
+          "| Option | Why not |",
+          "| --- | --- |",
+          ...uncovered,
+        ]
+      : []),
+    ...(actionGaps.length > 0
+      ? [
+          "",
+          `The one action left out is ${actionGaps.join(", ")} — it copies sources into \`SRCROOT\` as root, which is a packaging step rather than anything an agent loop needs.`,
+        ]
+      : []),
     "",
     "The denominator is read from the `xcodebuild -help` on the machine running `npm run coverage`, and CI fails if a new Xcode adds an option this table has never classified.",
     "",

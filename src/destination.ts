@@ -152,16 +152,50 @@ export async function resolveDestination(
 }
 
 /**
- * Prefer a simulator over hardware — a device build needs signing an agent
- * cannot supply — and the newest OS among those, which is what Xcode's own
- * scheme selector lands on.
+ * When several platforms are eligible, iOS is the one meant.
+ *
+ * A cross-platform Swift package reports simulators for every platform it
+ * supports, and sorting those by OS version alone lands on whichever happens
+ * to carry the highest number — a watchOS build for a package nobody was
+ * thinking about watchOS for. Anything unlisted sorts after these.
  */
-function pickDefault(destinations: Destination[]): Destination {
+const PLATFORM_ORDER = [
+  "iOS Simulator",
+  "tvOS Simulator",
+  "visionOS Simulator",
+  "watchOS Simulator",
+];
+
+function platformRank(platform: string): number {
+  const index = PLATFORM_ORDER.indexOf(platform);
+  return index === -1 ? PLATFORM_ORDER.length : index;
+}
+
+/**
+ * Within one platform and OS the tie would otherwise fall to whatever
+ * xcodebuild listed first, which is an iPad as often as an iPhone. Xcode's own
+ * default is a phone, and so is almost every agent's intent.
+ */
+function deviceRank(name: string): number {
+  return /^iPhone/.test(name) ? 0 : 1;
+}
+
+/**
+ * Prefer a simulator over hardware — a device build needs signing an agent
+ * cannot supply — then iOS over the other platforms, then the newest OS, which
+ * is what Xcode's own scheme selector lands on.
+ */
+export function pickDefault(destinations: Destination[]): Destination {
   const simulators = destinations.filter((d) =>
     d.platform.includes("Simulator"),
   );
   const pool = simulators.length > 0 ? simulators : destinations;
-  const sorted = [...pool].sort((a, b) => compareOS(a.os, b.os));
+  const sorted = [...pool].sort(
+    (a, b) =>
+      platformRank(a.platform) - platformRank(b.platform) ||
+      compareOS(a.os, b.os) ||
+      deviceRank(a.name) - deviceRank(b.name),
+  );
   const first = sorted[0];
   if (first === undefined) {
     throw new AxiError(

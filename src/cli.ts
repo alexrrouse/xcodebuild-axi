@@ -29,18 +29,19 @@ import {
 } from "./commands/xcframework.js";
 import { findCommand, FIND_HELP } from "./commands/find.js";
 import { platformsCommand, PLATFORMS_HELP } from "./commands/platforms.js";
+import { migrateCommand, MIGRATE_HELP } from "./commands/migrate.js";
 import { setupCommand, SETUP_HELP } from "./commands/setup.js";
 
 export const DESCRIPTION =
   "Agent-ergonomic wrapper around xcodebuild. Prefer it over raw `xcodebuild` for any build / test / inspect of an Xcode project.";
 
 export const TOP_HELP = `usage: xcodebuild-axi [command] [flags]
-commands[22]:
+commands[23]:
   (none)=dashboard
   build, test, tests, clean, analyze, archive, export
   schemes, destinations, testplans, settings, packages, info
   result, coverage, sim, platforms, setup
-  localize, xcframework, find
+  localize, xcframework, find, migrate
 flags[2]:
   --help, -v/-V/--version
 env[2]:
@@ -74,6 +75,7 @@ export const COMMAND_HELP: Record<string, string> = {
   coverage: COVERAGE_HELP,
   sim: SIM_HELP,
   platforms: PLATFORMS_HELP,
+  migrate: MIGRATE_HELP,
   localize: LOCALIZE_HELP,
   xcframework: XCFRAMEWORK_HELP,
   find: FIND_HELP,
@@ -98,6 +100,7 @@ const COMMANDS = {
   coverage: (args: string[]) => coverageCommand(args),
   sim: (args: string[]) => simCommand(args),
   platforms: (args: string[]) => platformsCommand(args),
+  migrate: (args: string[]) => migrateCommand(args),
   localize: (args: string[]) => localizeCommand(args),
   xcframework: (args: string[]) => xcframeworkCommand(args),
   find: (args: string[]) => findCommand(args),

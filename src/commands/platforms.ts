@@ -20,15 +20,15 @@ import { getFlag, hasFlag, positionals, rejectUnknownFlags } from "../args.js";
 
 export const PLATFORMS_HELP = `usage: xcodebuild-axi platforms [subcommand] [flags]
 Installed simulator runtimes, and the toolchain downloads that add more.
-subcommands[6]:
+subcommands[7]:
   (none)                     list the installed runtimes
   download <platform>        iOS, watchOS, tvOS, visionOS, or --all
   import <path.dmg>          install a runtime from a downloaded disk image
   component <op> <name>      show, download, import, or delete a component
   device-support             prepare symbols for a physical device
   first-launch               install bundled packages and accept the license
-                             (--status just reports whether it is needed)
-flags[8]:
+  license                    report whether the Xcode license has been accepted
+flags[11]:
   --all                 with download: every platform Xcode offers
   --export-path <path>  download to this directory instead of installing
   --build-version <v>   a specific OS or asset build to fetch
@@ -37,6 +37,9 @@ flags[8]:
   --platform <name>     with device-support: iOS, macOS, and so on
   --os-version <v>      with device-support: e.g. 26.0
   --model-code <code>   with device-support: e.g. iPhone16,1
+  --architecture <arch> with device-support: e.g. arm64e
+  --status              with first-launch: report whether it is needed, and stop
+  --check-updates       with first-launch: also check for newer components
 note:
   Downloads are multi-gigabyte and stream to a log rather than to stdout; the
   log path is printed either way. Known component: MetalToolchain.
@@ -47,6 +50,7 @@ examples:
   xcodebuild-axi platforms download iOS
   xcodebuild-axi platforms component show MetalToolchain
   xcodebuild-axi platforms device-support --platform iOS --os-version 26.0
+  xcodebuild-axi platforms license
 `;
 
 const FLAGS = [
@@ -95,6 +99,8 @@ export async function platformsCommand(args: string[]): Promise<string> {
       return deviceSupport(args);
     case "first-launch":
       return firstLaunch(args);
+    case "license":
+      return license();
     default:
       throw new AxiError(
         `Unknown platforms subcommand '${subcommand}'`,
@@ -386,6 +392,28 @@ async function firstLaunch(args: string[]): Promise<string> {
     key: "first_launch",
     subject: "bundled packages installed",
   });
+}
+
+/**
+ * `-license` on its own opens the agreement in a pager and then asks for sudo.
+ * `-license check` answers the only part of that an agent can act on — whether
+ * the license is already accepted — and exits without printing or prompting.
+ */
+async function license(): Promise<string> {
+  const { exitCode } = await runMetadata(["-license", "check"]);
+  const accepted = exitCode === 0;
+  if (!accepted) process.exitCode = 1;
+
+  return renderOutput([
+    renderFields({ license: accepted ? "accepted" : "not accepted" }),
+    renderHelp(
+      accepted
+        ? []
+        : [
+            "Run `sudo xcodebuild -license accept` yourself — it needs a terminal this tool does not have",
+          ],
+    ),
+  ]);
 }
 
 interface LongRunOptions {

@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { AxiError, mapXcodebuildError } from "./errors.js";
 import { requireProject, type ProjectContext } from "./context.js";
 import { requireScheme } from "./scheme.js";
@@ -55,6 +57,9 @@ export const SHARED_BUILD_FLAGS = [
   "--max-errors",
   "--full",
   "--codesize",
+  "--log-level",
+  "--bundle-version",
+  "--stream",
   ...PACKAGE_FLAGS,
 ] as const;
 
@@ -75,6 +80,9 @@ export const SHARED_BUILD_VALUE_FLAGS = [
   "--destination-timeout",
   "--max-errors",
   "--codesize",
+  "--log-level",
+  "--bundle-version",
+  "--stream",
   ...PACKAGE_VALUE_FLAGS,
 ] as const;
 
@@ -103,7 +111,68 @@ export const BUILD_FLAG_HELP = `  --scheme <name>         scheme to act on (requ
   --max-errors <n>        errors to list before summarizing the rest (default: 20)
   --full                  list every warning instead of the first 10
   --codesize <dir>        write a code size profile to this directory
+  --log-level <level>     quiet, normal, or verbose — how much lands in the log file
+  --bundle-version <n>    result bundle format version (default: xcodebuild's own)
+  --stream <path>         also write xcodebuild's live result stream here
 ${PACKAGE_FLAG_HELP}`;
+
+/**
+ * The flags that map straight onto an xcodebuild switch with no interpretation
+ * beyond validation. Grouped so they can be tested without a project.
+ */
+export function buildPassthroughArgs(
+  args: string[],
+  command: string,
+): string[] {
+  return [
+    ...codesizeArgs(args),
+    ...logLevelArgs(args, command),
+    ...streamArgs(args),
+    ...bundleVersionArgs(args),
+  ];
+}
+
+function bundleVersionArgs(args: string[]): string[] {
+  const version = getIntFlag(args, "--bundle-version");
+  return version === undefined ? [] : ["-resultBundleVersion", String(version)];
+}
+
+const LOG_LEVELS: Record<string, string[]> = {
+  quiet: ["-quiet"],
+  normal: [],
+  verbose: ["-verbose"],
+};
+
+/**
+ * The log file is a real artifact with a real size, even though the report
+ * never comes from it. `--log-level quiet` shrinks it; `verbose` is for the
+ * failures the result bundle cannot explain on its own.
+ */
+function logLevelArgs(args: string[], command: string): string[] {
+  const level = getFlag(args, "--log-level");
+  if (level === undefined) return [];
+  const mapped = LOG_LEVELS[level];
+  if (mapped === undefined) {
+    throw new AxiError(`Unknown log level '${level}'`, "VALIDATION_ERROR", [
+      "valid levels are quiet, normal, verbose",
+      `xcodebuild-axi ${command} --log-level verbose`,
+    ]);
+  }
+  return mapped;
+}
+
+/**
+ * `-resultStreamPath` refuses a path that does not already exist, which is an
+ * odd contract to pass on to a caller — so create the file first.
+ */
+function streamArgs(args: string[]): string[] {
+  const path = getFlag(args, "--stream");
+  if (path === undefined) return [];
+  const full = resolve(path);
+  mkdirSync(dirname(full), { recursive: true });
+  if (!existsSync(full)) writeFileSync(full, "");
+  return ["-resultStreamPath", full];
+}
 
 /** `-enableCodesizeProfile` is inert without an output directory, so one flag
  * sets both rather than letting a build run and produce nothing. */
@@ -260,7 +329,7 @@ export async function resolveBuildContext(
     ...(hasFlag(args, "--allow-provisioning")
       ? ["-allowProvisioningUpdates"]
       : []),
-    ...codesizeArgs(args),
+    ...buildPassthroughArgs(args, command),
     ...packageArgs(args),
     ...(hasFlag(args, "--sign") ? [] : ["CODE_SIGNING_ALLOWED=NO"]),
     ...settings,

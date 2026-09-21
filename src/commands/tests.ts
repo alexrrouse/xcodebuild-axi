@@ -23,7 +23,7 @@ import { getFlag, getIntFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 export const TESTS_HELP = `usage: xcodebuild-axi tests [flags]
 Lists the tests a scheme would run, without running them. Grouped by suite,
 because a thousand identifiers is not an answer.
-flags[42]:
+flags[45]:
 ${BUILD_FLAG_HELP}
   --test-plan <name>  test plan to enumerate
   --filter <text>     only suites or tests whose identifier contains this

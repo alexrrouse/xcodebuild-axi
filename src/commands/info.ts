@@ -1,13 +1,7 @@
 import { execFile } from "node:child_process";
 import { runMetadata } from "../xcodebuild.js";
 import { listSimulators } from "../simctl.js";
-import {
-  renderFields,
-  renderHelp,
-  renderList,
-  renderOutput,
-  tildePath,
-} from "../toon.js";
+import { renderFields, renderHelp, renderOutput, tildePath } from "../toon.js";
 import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 
 export const INFO_HELP = `usage: xcodebuild-axi info [flags]
@@ -51,7 +45,35 @@ export async function infoCommand(args: string[]): Promise<string> {
     ...new Set(simulators.map((simulator) => simulator.runtime)),
   ].sort();
 
-  const blocks = [
+  // `--sdks` is a different question from `info`, so it answers only that
+  // one. Reprinting the toolchain header cost more than the SDK list itself
+  // when this was measured — and a canonical name already carries its own
+  // platform and version, so one column says what three did.
+  if (hasFlag(args, "--sdks") || platform !== undefined) {
+    const names = [
+      ...new Set(
+        filtered.map((sdk) => sdk.canonicalName).filter((name) => !!name),
+      ),
+    ].sort() as string[];
+
+    if (names.length === 0) {
+      return renderOutput([
+        renderFields({
+          sdks: `0 of ${sdks.length} installed SDKs match platform '${platform}'`,
+        }),
+        renderHelp(["Run `xcodebuild-axi info --sdks` to list them all"]),
+      ]);
+    }
+
+    return renderOutput([
+      renderFields({
+        ...(platform ? { platform } : {}),
+        sdks: names,
+      }),
+    ]);
+  }
+
+  return renderOutput([
     renderFields({
       xcode: version.version,
       build: version.build,
@@ -60,34 +82,8 @@ export async function infoCommand(args: string[]): Promise<string> {
       simulators: simulators.length,
       ...(runtimes.length > 0 ? { runtimes } : {}),
     }),
-  ];
-
-  if (hasFlag(args, "--sdks") || platform !== undefined) {
-    if (filtered.length === 0) {
-      blocks.push(
-        renderFields({ sdk_list: `0 SDKs match platform '${platform}'` }),
-      );
-    } else {
-      blocks.push(
-        renderList(
-          "sdk_list",
-          filtered.map((sdk) => ({
-            name: sdk.canonicalName ?? "",
-            platform: sdk.platform ?? "",
-            version: sdk.sdkVersion ?? "",
-          })),
-        ),
-      );
-    }
-  } else {
-    blocks.push(
-      renderHelp([
-        "Run `xcodebuild-axi info --sdks` to list the installed SDKs",
-      ]),
-    );
-  }
-
-  return renderOutput(blocks);
+    renderHelp(["Run `xcodebuild-axi info --sdks` to list the installed SDKs"]),
+  ]);
 }
 
 async function readVersion(): Promise<{ version: string; build: string }> {
