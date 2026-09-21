@@ -11,8 +11,11 @@ concurrency:
 
 jobs:
   check:
-    # macOS, because this package declares `"os": ["darwin"]` and the
-    # integration tests shell out to a real xcodebuild.
+    # macOS because `coverage:check` reads the installed `xcodebuild -help`.
+    # The tests themselves are pure and would run anywhere. Note the hosted
+    # image is several Xcode major versions behind a current developer machine
+    # (16.4 at time of writing), which is why the drift half of that check only
+    # fails on the Xcode named by AUTHORED_AGAINST.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5

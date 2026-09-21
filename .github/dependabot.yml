@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # The SDK owns dispatch, help, and hook installation, so a release of it
+  # changes this tool's behavior without a commit here. Worth seeing weekly.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
