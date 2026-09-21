@@ -1,6 +1,7 @@
 import { AxiError } from "../errors.js";
 import { requireProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
+import { resolveDestination } from "../destination.js";
 import { runMetadata } from "../xcodebuild.js";
 import { renderFields, renderHelp, renderList, renderOutput } from "../toon.js";
 import { getFlag, getListFlag, hasFlag, rejectUnknownFlags } from "../args.js";
@@ -8,15 +9,23 @@ import { getFlag, getListFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 export const SETTINGS_HELP = `usage: xcodebuild-axi settings [flags]
 Reads resolved build settings. Asking for the keys you want turns a 40 KB dump
 into a few lines.
-flags[7]:
+flags[10]:
   --scheme <name>         scheme to resolve against (required only when the project has more than one)
   --key <NAME>            setting to read; repeatable or comma-separated
   --configuration <name>  build configuration to resolve against
+  --device <name>         resolve against a simulator or device by name, e.g. "iPhone 17 Pro"
+  --destination <spec>    raw xcodebuild destination specifier, passed through untouched
+  --sdk <name>            base SDK to resolve against, e.g. iphonesimulator
   --all                   dump every setting (large — hundreds of keys)
   --for-index             the per-source-file settings an indexer sees
   --file <path>           with --for-index: the one source file to report on
   --full                  with --for-index --file: list the long argument arrays
 note:
+  Paths and platform names are destination-dependent. With no --device,
+  --destination or --sdk, xcodebuild resolves against the default SDK, which is
+  the *device* SDK -- so BUILT_PRODUCTS_DIR comes back under Debug-iphoneos
+  while build and test default to a simulator. The reported platform names
+  what the answer is for.
   --for-index answers a different question from the rest of this command: it
   reports the compiler invocation the indexer builds per source file. The raw
   payload measured 216 KB on a 12-scheme workspace, so without --file it
@@ -24,6 +33,7 @@ note:
 examples:
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER,MARKETING_VERSION
   xcodebuild-axi settings --scheme MyApp --key SWIFT_VERSION
+  xcodebuild-axi settings --scheme MyApp --device "iPhone 17 Pro" --key BUILT_PRODUCTS_DIR
   xcodebuild-axi settings --scheme MyApp --for-index --file MyApp/AppFeature.swift
 `;
 
@@ -31,12 +41,23 @@ const FLAGS = [
   "--scheme",
   "--key",
   "--configuration",
+  "--device",
+  "--destination",
+  "--sdk",
   "--all",
   "--for-index",
   "--file",
   "--full",
 ] as const;
-const VALUE_FLAGS = ["--scheme", "--key", "--configuration", "--file"] as const;
+const VALUE_FLAGS = [
+  "--scheme",
+  "--key",
+  "--configuration",
+  "--device",
+  "--destination",
+  "--sdk",
+  "--file",
+] as const;
 
 export async function settingsCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "settings", FLAGS, VALUE_FLAGS);
@@ -59,12 +80,33 @@ export async function settingsCommand(args: string[]): Promise<string> {
     "settings",
   );
   const configuration = getFlag(args, "--configuration");
+  const sdk = getFlag(args, "--sdk");
+
+  // Without a destination xcodebuild resolves against the default *device*
+  // SDK, so BUILT_PRODUCTS_DIR and PLATFORM_NAME describe a build that
+  // `xcodebuild-axi build` -- which defaults to the newest simulator -- never
+  // performs. Reading the `.app` path out of that answer sends you to an
+  // iphoneos directory for a simulator build. Only resolve when asked, so the
+  // default answer does not move under anyone.
+  const rawDestination = getFlag(args, "--destination");
+  const device = getFlag(args, "--device");
+  const destination =
+    rawDestination !== undefined || device !== undefined
+      ? await resolveDestination({
+          project,
+          scheme,
+          ...(device !== undefined ? { device } : {}),
+          ...(rawDestination !== undefined ? { raw: rawDestination } : {}),
+        })
+      : undefined;
 
   const { stdout } = await runMetadata([
     ...project.flags,
     "-scheme",
     scheme,
     ...(configuration ? ["-configuration", configuration] : []),
+    ...(destination ? ["-destination", destination.specifier] : []),
+    ...(sdk ? ["-sdk", sdk] : []),
     forIndex ? "-showBuildSettingsForIndex" : "-showBuildSettings",
     "-json",
   ]);
@@ -80,9 +122,15 @@ export async function settingsCommand(args: string[]): Promise<string> {
 
   const settings = parseSettings(stdout);
 
+  const platform = platformOf(settings);
+
   if (all) {
     return renderOutput([
-      renderFields({ scheme, settings: Object.keys(settings).length }),
+      renderFields({
+        scheme,
+        ...platform,
+        settings: Object.keys(settings).length,
+      }),
       renderFields({ ...settings }),
     ]);
   }
@@ -95,7 +143,7 @@ export async function settingsCommand(args: string[]): Promise<string> {
     else found[key] = value;
   }
 
-  const blocks = [renderFields({ scheme })];
+  const blocks = [renderFields({ scheme, ...platform })];
 
   if (Object.keys(found).length > 0) {
     blocks.push(renderFields({ settings: found }));
@@ -113,6 +161,18 @@ export async function settingsCommand(args: string[]): Promise<string> {
   }
 
   return renderOutput(blocks);
+}
+
+/**
+ * Name the platform an answer is for. These settings are destination-dependent
+ * and the destination is easy not to think about, so the report says which one
+ * it resolved against rather than leaving the reader to assume.
+ */
+export function platformOf(
+  settings: Record<string, unknown>,
+): { platform: string } | Record<string, never> {
+  const name = settings["PLATFORM_NAME"];
+  return typeof name === "string" && name.length > 0 ? { platform: name } : {};
 }
 
 /** `{ target: { sourceFilePath: { setting: value } } }`. */
