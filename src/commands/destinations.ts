@@ -12,7 +12,7 @@ flags[3]:
   --simulators     simulators only
 examples:
   xcodebuild-axi destinations
-  xcodebuild-axi destinations --scheme Tides --simulators
+  xcodebuild-axi destinations --scheme MyApp --simulators
 `;
 
 const FLAGS = ["--scheme", "--all", "--simulators"] as const;

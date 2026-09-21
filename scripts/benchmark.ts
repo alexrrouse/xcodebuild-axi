@@ -6,7 +6,7 @@
  * answers tokenized. Nothing is estimated — if a scenario cannot run on this
  * machine it is reported as skipped rather than guessed at.
  *
- *   npm run benchmark -- --project ~/Developer/Saalt-iOS --scheme Tides
+ *   npm run benchmark -- --project ~/Developer/MyApp --scheme MyApp
  *   npm run benchmark -- --project ... --scheme ... --quick   # no build or test
  *   npm run benchmark -- --project ... --scheme ... --write   # update README
  *   npm run benchmark -- --project ... --scheme ... --resume  # reuse finished scenarios
@@ -368,12 +368,14 @@ if (!write) {
     process.exit(1);
   }
 
+  // The scheme and project are deliberately not named here: this runs against
+  // whatever real app the author has on hand, and the README is public.
   const section = [
     START,
     "",
     table,
     "",
-    `Token counts are GPT-4o BPE via \`gpt-tokenizer\` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by \`npm run benchmark\` against ${scheme} in a real workspace on ${new Date().toISOString().slice(0, 10)}.`,
+    `Token counts are GPT-4o BPE via \`gpt-tokenizer\` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by \`npm run benchmark\` against one app of a real multi-scheme iOS workspace on ${new Date().toISOString().slice(0, 10)}.`,
     "",
     END,
   ].join("\n");

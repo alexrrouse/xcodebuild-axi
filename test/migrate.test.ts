@@ -56,14 +56,14 @@ describe("errorLine", () => {
 describe("parseWorkspaceProjects", () => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Workspace version = "1.0">
-   <FileRef location = "group:Tides.xcodeproj"></FileRef>
+   <FileRef location = "group:MyApp.xcodeproj"></FileRef>
    <FileRef location = "group:Nested/Second.xcodeproj"></FileRef>
    <FileRef location = "group:NotAProject.swift"></FileRef>
 </Workspace>`;
 
   it("resolves project references against the workspace's directory", () => {
     expect(parseWorkspaceProjects(xml, "/repo")).toEqual([
-      "/repo/Tides.xcodeproj",
+      "/repo/MyApp.xcodeproj",
       "/repo/Nested/Second.xcodeproj",
     ]);
   });

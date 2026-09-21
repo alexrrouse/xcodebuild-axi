@@ -31,8 +31,8 @@ note:
 exit:
   0 archive succeeded, 1 it failed, 2 usage error
 examples:
-  xcodebuild-axi archive --scheme Tides
-  xcodebuild-axi archive --scheme Tides --archive-path build/Tides.xcarchive
+  xcodebuild-axi archive --scheme MyApp
+  xcodebuild-axi archive --scheme MyApp --archive-path build/MyApp.xcarchive
 `;
 
 const FLAGS = [...SHARED_BUILD_FLAGS, "--archive-path", ...AUTH_FLAGS] as const;

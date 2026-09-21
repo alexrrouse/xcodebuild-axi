@@ -40,9 +40,9 @@ note:
   --method writes the export options plist for you, which is otherwise an XML
   file you have to author by hand. Pass --options to supply your own instead.
 examples:
-  xcodebuild-axi export build/Tides.xcarchive --method release-testing
-  xcodebuild-axi export build/Tides.xcarchive --method app-store-connect --team ABCDE12345
-  xcodebuild-axi export build/Tides.xcarchive --options ExportOptions.plist
+  xcodebuild-axi export build/MyApp.xcarchive --method release-testing
+  xcodebuild-axi export build/MyApp.xcarchive --method app-store-connect --team ABCDE12345
+  xcodebuild-axi export build/MyApp.xcarchive --options ExportOptions.plist
 `;
 
 const FLAGS = [

@@ -8,7 +8,7 @@ export interface ProjectContext {
   kind: ProjectKind;
   /** Absolute path to the container (or the directory, for a package). */
   path: string;
-  /** Display name: "Apps" for Apps.xcworkspace. */
+  /** Display name: "MyApps" for MyApps.xcworkspace. */
   name: string;
   /** The `-workspace X` / `-project X` pair to pass xcodebuild, if any. */
   flags: string[];

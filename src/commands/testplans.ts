@@ -10,7 +10,7 @@ flags[1]:
   --scheme <name>  scheme to inspect (required only when the project has more than one)
 examples:
   xcodebuild-axi testplans
-  xcodebuild-axi testplans --scheme Tides
+  xcodebuild-axi testplans --scheme MyApp
 `;
 
 export async function testplansCommand(args: string[]): Promise<string> {

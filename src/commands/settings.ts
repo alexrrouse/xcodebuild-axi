@@ -23,8 +23,8 @@ note:
   reports only which targets have index settings and how many files each has.
 examples:
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER,MARKETING_VERSION
-  xcodebuild-axi settings --scheme Tides --key SWIFT_VERSION
-  xcodebuild-axi settings --scheme Tides --for-index --file Tides/AppFeature.swift
+  xcodebuild-axi settings --scheme MyApp --key SWIFT_VERSION
+  xcodebuild-axi settings --scheme MyApp --for-index --file MyApp/AppFeature.swift
 `;
 
 const FLAGS = [

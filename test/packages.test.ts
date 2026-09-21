@@ -7,7 +7,7 @@ import {
 
 describe("packageArgs", () => {
   it("is empty when nothing is asked for", () => {
-    expect(packageArgs(["--scheme", "Tides"])).toEqual([]);
+    expect(packageArgs(["--scheme", "MyApp"])).toEqual([]);
   });
 
   it("maps switches to xcodebuild's names", () => {

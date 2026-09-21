@@ -77,7 +77,7 @@ export interface BuildRun {
 
 export interface BuildRunOptions {
   args: string[];
-  /** Filename stem for the log and result bundle, e.g. "Futures-iPhone-17-Pro". */
+  /** Filename stem for the log and result bundle, e.g. "MyApp-iPhone-17-Pro". */
   label: string;
   /** Omit for invocations that act on the toolchain rather than a project. */
   project?: ProjectContext;

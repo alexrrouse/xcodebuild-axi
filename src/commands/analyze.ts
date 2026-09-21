@@ -18,7 +18,7 @@ exit:
   0 the analyze action succeeded (findings do not fail it), 1 it failed, 2 usage error
 examples:
   xcodebuild-axi analyze
-  xcodebuild-axi analyze --scheme Tides --full
+  xcodebuild-axi analyze --scheme MyApp --full
 `;
 
 export async function analyzeCommand(args: string[]): Promise<string> {

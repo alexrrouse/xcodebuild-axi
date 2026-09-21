@@ -33,8 +33,8 @@ note:
   Enumerating compiles the test bundle, so the first run is as slow as a build.
   It is still far cheaper than running the tests to find out what they are.
 examples:
-  xcodebuild-axi tests --scheme Ration
-  xcodebuild-axi tests --scheme Ration --filter AppFeature --list
+  xcodebuild-axi tests --scheme MyApp
+  xcodebuild-axi tests --scheme MyApp --filter AppFeature --list
 `;
 
 const FLAGS = [

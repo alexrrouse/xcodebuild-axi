@@ -20,6 +20,44 @@ installation for Claude Code, Codex, and OpenCode. `src/cli.ts` registers no
 `bin:` and `description:` header into the home view at runtime, so
 `commands/home.ts` must not print them itself.
 
+## Working on this repo
+
+```sh
+npm run format:check && npm run lint && npx tsc --noEmit && npm test
+npm run build && npm run build:skill -- --check && npm run coverage:check
+```
+
+That is what CI runs, in that order. `npm run dev -- <args>` runs the CLI from
+source without building.
+
+**Three files are generated and must never be hand-edited**, because CI
+compares them against a fresh render and fails on a mismatch:
+
+- `skills/xcodebuild-axi/SKILL.md` — from `DESCRIPTION` and `TOP_HELP` in
+  `src/cli.ts`, via `npm run build:skill`.
+- The `<!-- coverage:* -->` sections of `README.md` — from `src/surface.ts`,
+  via `npm run coverage`.
+- The `<!-- benchmark:* -->` section of `README.md` — from a real run, via
+  `npm run benchmark -- ... --write`.
+
+Editing a command's help text therefore means regenerating the skill in the
+same commit.
+
+## Examples never name a real project
+
+This repository is public; the projects it was built against are not. Every
+scheme, workspace, target, and path in help text, tests, and the README uses a
+fixed fictional vocabulary — `MyApp` for a scheme, `MyApps` for a workspace,
+`MyAppTests/CheckoutTests` for a test identifier, `MyApps-1a2b3c4d` for a cache
+directory. Reach for those rather than inventing a new name per file, and never
+paste a real one in while debugging against a real workspace.
+
+Measured numbers are the exception and are kept exactly as observed — a byte
+count or a token ratio identifies nothing. Describe their source by shape ("a
+12-scheme workspace with 16 local packages"), not by name. `scripts/benchmark.ts`
+takes `--project` and `--scheme` at runtime and deliberately keeps both out of
+the README section it writes, so pointing it at a real app cannot leak one.
+
 ## The result bundle is the source of truth, not the transcript
 
 Every build and test runs with `-resultBundlePath` and reports from the bundle

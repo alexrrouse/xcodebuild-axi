@@ -51,8 +51,8 @@ exit:
   0 success, 1 the build or tests failed, 2 usage error
 examples:
   xcodebuild-axi
-  xcodebuild-axi build --scheme Futures
-  xcodebuild-axi test --scheme Futures --device "iPhone 17 Pro" --coverage
+  xcodebuild-axi build --scheme MyApp
+  xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro" --coverage
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER
   xcodebuild-axi setup hooks
 `;

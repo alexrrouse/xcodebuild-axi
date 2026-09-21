@@ -29,8 +29,8 @@ note:
   Coverage has to have been collected. Run the tests with
   \`xcodebuild-axi test --coverage\` if the bundle has none.
 examples:
-  xcodebuild-axi coverage ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Tides-test.xcresult
-  xcodebuild-axi coverage build/Tides.xcresult --files --below 50
+  xcodebuild-axi coverage ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-test.xcresult
+  xcodebuild-axi coverage build/MyApp.xcresult --files --below 50
 `;
 
 const FLAGS = ["--files", "--target", "--below", "--max"] as const;

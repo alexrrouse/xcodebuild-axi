@@ -4,7 +4,7 @@ import { AxiError } from "../src/errors.js";
 
 describe("authArgs", () => {
   it("passes nothing through when no auth flags are given", () => {
-    expect(authArgs(["--scheme", "Tides"], "archive")).toEqual([]);
+    expect(authArgs(["--scheme", "MyApp"], "archive")).toEqual([]);
   });
 
   it("maps the full trio", () => {

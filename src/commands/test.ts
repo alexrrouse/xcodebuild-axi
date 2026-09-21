@@ -67,9 +67,9 @@ exit:
   0 all tests passed, 1 a test or the build failed, 2 usage error
 examples:
   xcodebuild-axi test
-  xcodebuild-axi test --scheme Futures --device "iPhone 17 Pro"
-  xcodebuild-axi test --scheme Tides --only TidesTests/TideChartTests
-  xcodebuild-axi test --scheme Tides --coverage
+  xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro"
+  xcodebuild-axi test --scheme MyApp --only MyAppTests/CheckoutTests
+  xcodebuild-axi test --scheme MyApp --coverage
 `;
 
 const FLAGS = [

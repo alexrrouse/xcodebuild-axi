@@ -31,8 +31,8 @@ flags[4]:
   --max <n>      rows to list before summarizing the rest (default: 20)
   --full         untruncated messages
 examples:
-  xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Futures-iPhone-17-Pro-test.xcresult
-  xcodebuild-axi result build/Tides.xcresult --failures --full
+  xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.xcresult
+  xcodebuild-axi result build/MyApp.xcresult --failures --full
 `;
 
 const FLAGS = ["--failures", "--warnings", "--max", "--full"] as const;

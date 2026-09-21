@@ -11,8 +11,8 @@ import {
 
 describe("getFlag", () => {
   it("reads both the spaced and the equals form", () => {
-    expect(getFlag(["--scheme", "Tides"], "--scheme")).toBe("Tides");
-    expect(getFlag(["--scheme=Tides"], "--scheme")).toBe("Tides");
+    expect(getFlag(["--scheme", "MyApp"], "--scheme")).toBe("MyApp");
+    expect(getFlag(["--scheme=MyApp"], "--scheme")).toBe("MyApp");
   });
 
   it("returns undefined when absent", () => {
@@ -72,7 +72,7 @@ describe("rejectUnknownFlags", () => {
   it("rejects an unknown flag by name and lists the valid ones inline", () => {
     try {
       rejectUnknownFlags(
-        ["--scheem", "Tides"],
+        ["--scheem", "MyApp"],
         "build",
         ["--scheme"],
         ["--scheme"],

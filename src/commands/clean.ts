@@ -9,7 +9,7 @@ flags[3]:
   --derived-data <path>   derived data directory to clean within
 examples:
   xcodebuild-axi clean
-  xcodebuild-axi clean --scheme Tides --configuration Release
+  xcodebuild-axi clean --scheme MyApp --configuration Release
 `;
 
 const FLAGS = ["--scheme", "--configuration", "--derived-data"] as const;

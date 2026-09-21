@@ -40,7 +40,7 @@ describe("parseDestinationLine", () => {
 
   it("ignores lines that are not destination rows", () => {
     expect(
-      parseDestinationLine("Available destinations for the Tides scheme:"),
+      parseDestinationLine("Available destinations for the MyApp scheme:"),
     ).toBeUndefined();
     expect(parseDestinationLine("")).toBeUndefined();
   });
@@ -85,8 +85,8 @@ describe("pickDefault", () => {
   });
 
   it("falls back to hardware only when no simulator is eligible", () => {
-    const picked = pickDefault([destination("iOS", "Alex's iPhone", "26.5")]);
-    expect(picked.name).toBe("Alex's iPhone");
+    const picked = pickDefault([destination("iOS", "My iPhone", "26.5")]);
+    expect(picked.name).toBe("My iPhone");
   });
 
   it("breaks a same-OS tie toward an iPhone", () => {

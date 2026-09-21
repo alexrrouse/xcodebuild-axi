@@ -23,13 +23,13 @@ afterEach(() => {
 describe("resolveProject", () => {
   it("finds a workspace", () => {
     const dir = scratch();
-    mkdirSync(join(dir, "Apps.xcworkspace"));
+    mkdirSync(join(dir, "MyApps.xcworkspace"));
     const project = resolveProject(dir);
     expect(project?.kind).toBe("workspace");
-    expect(project?.name).toBe("Apps");
+    expect(project?.name).toBe("MyApps");
     expect(project?.flags).toEqual([
       "-workspace",
-      join(dir, "Apps.xcworkspace"),
+      join(dir, "MyApps.xcworkspace"),
     ]);
   });
 
@@ -37,8 +37,8 @@ describe("resolveProject", () => {
   // inside one usually cannot resolve the workspace's package graph alone.
   it("prefers a workspace over a project in the same directory", () => {
     const dir = scratch();
-    mkdirSync(join(dir, "Apps.xcworkspace"));
-    mkdirSync(join(dir, "Tides.xcodeproj"));
+    mkdirSync(join(dir, "MyApps.xcworkspace"));
+    mkdirSync(join(dir, "MyApp.xcodeproj"));
     expect(resolveProject(dir)?.kind).toBe("workspace");
   });
 
@@ -46,10 +46,10 @@ describe("resolveProject", () => {
   it("ignores the project.xcworkspace inside an .xcodeproj", () => {
     const dir = scratch();
     mkdirSync(join(dir, "project.xcworkspace"));
-    mkdirSync(join(dir, "Tides.xcodeproj"));
+    mkdirSync(join(dir, "MyApp.xcodeproj"));
     const project = resolveProject(dir);
     expect(project?.kind).toBe("project");
-    expect(project?.name).toBe("Tides");
+    expect(project?.name).toBe("MyApp");
   });
 
   it("falls back to a Swift package, which needs no container flag", () => {

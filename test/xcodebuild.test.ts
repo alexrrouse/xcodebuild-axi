@@ -14,19 +14,19 @@ describe("stripPreamble", () => {
       "",
       "",
       "Resolved source packages:",
-      "  Tides-Data: /repo/Tides/Tides-Data",
+      "  MyApp-Data: /repo/MyApp/MyApp-Data",
       "  Common: /repo/Shared/Common @ local",
       "",
-      'Information about workspace "Apps":',
+      'Information about workspace "MyApps":',
       "    Schemes:",
-      "        Tides",
+      "        MyApp",
     ].join("\n");
 
     expect(stripPreamble(raw)).toBe(
       [
-        'Information about workspace "Apps":',
+        'Information about workspace "MyApps":',
         "    Schemes:",
-        "        Tides",
+        "        MyApp",
       ].join("\n"),
     );
   });

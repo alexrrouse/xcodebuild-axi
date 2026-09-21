@@ -19,14 +19,14 @@ read that to learn one number pays for it on every change, several times over.
 `xcodebuild-axi` runs the same build and reports the answer.
 
 ```sh
-$ xcodebuild-axi test --scheme Futures --device "iPhone 17 Pro"
+$ xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro"
 test: passed
-scheme: Futures
+scheme: MyApp
 destination: iPhone 17 Pro · iOS Simulator 26.5
 tests: 767 passed / 0 failed / 0 skipped
 duration: 15m34s
-log: ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Futures-iPhone-17-Pro-test.log
-result: ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Futures-iPhone-17-Pro-test.xcresult
+log: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.log
+result: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.xcresult
 ```
 
 The whole transcript still lands in `log`, so nothing is lost — it just stops
@@ -74,7 +74,7 @@ iOS workspace with 16 local Swift packages, and tokenizes both answers.
 | which test plans does this scheme have? | 445 tok        | 42 tok           | **90.56%** |
 | **all 6 together**                      | **76,978 tok** | **611 tok**      | **99.21%** |
 
-Token counts are GPT-4o BPE via `gpt-tokenizer` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by `npm run benchmark` against Tides in a real workspace on 2026-09-21.
+Token counts are GPT-4o BPE via `gpt-tokenizer` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by `npm run benchmark` against one app of a real multi-scheme iOS workspace on 2026-09-21.
 
 <!-- benchmark:end -->
 
@@ -130,10 +130,10 @@ Running it with no arguments shows the project in front of you, not a manual:
 $ xcodebuild-axi
 bin: ~/.local/bin/xcodebuild-axi
 description: Agent-ergonomic wrapper around xcodebuild.
-workspace: Apps
+workspace: MyApps
 scheme_count: 12
-schemes[12]: Accrue,Apps-Workspace,FiveDice,Futures,Futures-WidgetExtension,Ration,...
-last: Test - Ration on iPhone 17 Pro · iOS Simulator 26.5 — 89 passed (4m ago)
+schemes[12]: Analytics,Checkout,DesignSystem,Feed,MyApp,MyApp-Widget,...
+last: Test - Checkout on iPhone 17 Pro · iOS Simulator 26.5 — 89 passed (4m ago)
 help[2]:
   Run `xcodebuild-axi build --scheme <name>` to build
   Run `xcodebuild-axi test --scheme <name>` to run tests
@@ -201,9 +201,9 @@ against raw `xcodebuild`, and a miss costs a whole failed invocation. Pass a
 name, or pass nothing:
 
 ```sh
-xcodebuild-axi test --scheme Tides --device "iPhone 17 Pro"   # matched for you
-xcodebuild-axi test --scheme Tides                            # newest simulator
-xcodebuild-axi test --scheme Tides --destination "platform=iOS Simulator,id=…"
+xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro"   # matched for you
+xcodebuild-axi test --scheme MyApp                            # newest simulator
+xcodebuild-axi test --scheme MyApp --destination "platform=iOS Simulator,id=…"
 ```
 
 Names are resolved to a simulator **udid** before the run, because two runtimes
@@ -217,7 +217,7 @@ run actually landed on, read back out of the result bundle.
 to be re-read:
 
 ```sh
-xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/Apps-1a2b3c4d/Tides-test.xcresult --failures --full
+xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-test.xcresult --failures --full
 ```
 
 ## Ambient context
@@ -241,7 +241,7 @@ stale path.
 agent that reads the skill format:
 
 ```sh
-npx skills add arouse/xcodebuild-axi --skill xcodebuild-axi
+npx skills add alexrrouse/xcodebuild-axi --skill xcodebuild-axi
 ```
 
 ## Conventions
@@ -266,6 +266,33 @@ npx skills add arouse/xcodebuild-axi --skill xcodebuild-axi
 | ---------------- | ------------------------------------------------ |
 | `XCODEBUILD_BIN` | Override the wrapped `xcodebuild` binary         |
 | `DEVELOPER_DIR`  | Select an Xcode, as `xcodebuild` itself reads it |
+
+## Development
+
+```sh
+npm install
+npm run dev -- destinations --scheme MyApp   # run from source
+npm test
+```
+
+Everything CI checks, in order:
+
+```sh
+npm run format:check && npm run lint && npx tsc --noEmit && npm test
+npm run build && npm run build:skill -- --check && npm run coverage:check
+```
+
+Three committed files are generated and fail CI when stale: the skill
+(`npm run build:skill`, from the CLI's own help text), the coverage table
+(`npm run coverage`, from `src/surface.ts`), and the benchmark table
+(`npm run benchmark -- --write`). Regenerate rather than editing them.
+
+Adding a flag means three edits — the command, `src/surface.ts`, and
+`npm run coverage` — and the `flags[N]:` count in a help block is asserted by
+`test/help.test.ts`, so a forgotten count fails the suite.
+
+Examples in help text, tests, and this README use a fictional project
+vocabulary (`MyApp`, `MyApps`, `MyApps-1a2b3c4d`); see `AGENTS.md`.
 
 ## Built on
 

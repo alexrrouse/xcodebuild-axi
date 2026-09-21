@@ -21,9 +21,9 @@ exit:
   0 build succeeded, 1 build failed, 2 usage error
 examples:
   xcodebuild-axi build
-  xcodebuild-axi build --scheme Futures --device "iPhone 17 Pro"
-  xcodebuild-axi build --scheme Tides --configuration Release --clean
-  xcodebuild-axi build --scheme Tides --for-testing
+  xcodebuild-axi build --scheme MyApp --device "iPhone 17 Pro"
+  xcodebuild-axi build --scheme MyApp --configuration Release --clean
+  xcodebuild-axi build --scheme MyApp --for-testing
 `;
 
 const FLAGS = [

@@ -9,7 +9,7 @@ describe("mapXcodebuildError", () => {
   // only witness.
   it("recognizes a bad scheme name and points at the lookup", () => {
     const mapped = mapXcodebuildError(
-      'xcodebuild: error: The workspace named "Apps" does not contain a scheme named "Futuers".',
+      'xcodebuild: error: The workspace named "MyApps" does not contain a scheme named "Futuers".',
     );
     expect(mapped?.code).toBe("SCHEME_NOT_FOUND");
     expect(mapped?.message).toContain("Futuers");
@@ -32,9 +32,9 @@ describe("mapXcodebuildError", () => {
 
   it("recognizes a missing signing team and says simulator builds need none", () => {
     const mapped = mapXcodebuildError(
-      'error: Signing for "Tides" requires a development team. Select a development team.',
+      'error: Signing for "MyApp" requires a development team. Select a development team.',
     );
-    expect(mapped?.message).toContain("Tides");
+    expect(mapped?.message).toContain("MyApp");
     expect(mapped?.suggestions.join(" ")).toContain("simulator");
   });
 
