@@ -43,6 +43,34 @@ compares them against a fresh render and fails on a mismatch:
 Editing a command's help text therefore means regenerating the skill in the
 same commit.
 
+## Releasing
+
+Tag-triggered, because the commit history here is prose rather than
+conventional commits and the version is a judgment call rather than something
+to derive. To cut a release:
+
+```sh
+npm version patch|minor|major   # writes package.json and the tag together
+git push --follow-tags
+```
+
+`.github/workflows/release.yml` then re-runs every CI check, refuses a tag that
+disagrees with `package.json`, packs the tarball and runs the binary out of it,
+publishes to npm with provenance, and opens the GitHub release. Update the
+`## [Unreleased]` section of `CHANGELOG.md` before tagging — nothing generates
+it.
+
+Publishing needs an `NPM_TOKEN` repository secret with publish rights. The
+provenance attestation additionally needs `id-token: write`, which the workflow
+declares; it is what lets npm show the package was built from this repository
+rather than someone's laptop.
+
+`src/version.ts` reads the version out of `package.json` at runtime instead of
+hardcoding it, so `--version` cannot drift from the published version. That
+lookup walks up from the module's own directory, which differs between `tsx`
+and the installed layout — the release workflow installs the tarball and checks
+`--version` against the tag for exactly that reason.
+
 ## Examples never name a real project
 
 This repository is public; the projects it was built against are not. Every

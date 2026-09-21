@@ -28,7 +28,8 @@
     "dist",
     "skills/xcodebuild-axi",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -47,6 +48,7 @@
     "coverage:check": "tsx scripts/coverage.ts --check",
     "benchmark": "tsx scripts/benchmark.ts"
   },
+  "author": "Alex Rouse",
   "license": "MIT",
   "os": [
     "darwin"

@@ -1,0 +1,83 @@
+name: Release
+
+# Tag-triggered rather than a release-please PR: the commit history here is
+# prose, not conventional commits, so the version is chosen deliberately and
+# the tag is the trigger. `npm version <bump>` writes both.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    # macOS for the same reason CI is: coverage:check reads the installed
+    # xcodebuild, and this is the last gate before a version is permanent.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # A tag that disagrees with package.json publishes a version nobody can
+      # find from the release notes, and npm will not let it be replaced.
+      - name: Tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $GITHUB_REF_NAME implies $tag but package.json says $pkg" >&2
+            exit 1
+          fi
+          echo "releasing $pkg"
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Skill is not stale
+        run: npx tsx scripts/build-skill.ts --check
+
+      - name: Coverage map matches this xcodebuild
+        run: npm run coverage:check
+
+      # Installing the tarball is the only check that covers `files`, the bin
+      # shebang, and the runtime package.json lookup in src/version.ts — all of
+      # which pass in this repo and can still be broken in the published one.
+      - name: Installed tarball runs
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP"
+          npm init -y >/dev/null
+          npm install ./xcodebuild-axi-*.tgz
+          test "$(./node_modules/.bin/xcodebuild-axi --version)" = "${GITHUB_REF_NAME#v}"
+          ./node_modules/.bin/xcodebuild-axi info
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
