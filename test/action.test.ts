@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildPassthroughArgs } from "../src/action.js";
+import { artifactsDirFrom, buildPassthroughArgs } from "../src/action.js";
 import { AxiError } from "../src/errors.js";
 
 describe("build passthrough flags", () => {
@@ -57,5 +57,23 @@ describe("build passthrough flags", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("artifacts dir", () => {
+  it("stays out of the way when not asked for", () => {
+    expect(artifactsDirFrom([])).toBeUndefined();
+  });
+
+  it("passes an absolute path through", () => {
+    expect(artifactsDirFrom(["--artifacts-dir", "/tmp/out"])).toBe("/tmp/out");
+  });
+
+  // The CI case: a workflow says `build/` meaning the workspace it checked
+  // out, and the run happens from somewhere else entirely.
+  it("resolves a relative path against the working directory", () => {
+    expect(artifactsDirFrom(["--artifacts-dir", "build"])).toBe(
+      join(process.cwd(), "build"),
+    );
   });
 });

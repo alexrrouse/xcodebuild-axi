@@ -11,7 +11,7 @@ import { hasFlag, rejectUnknownFlags } from "../args.js";
 
 export const BUILD_HELP = `usage: xcodebuild-axi build [flags]
 Builds a scheme and reports only what failed, with exact source locations.
-flags[45]:
+flags[46]:
 ${BUILD_FLAG_HELP}
   --clean                 clean before building
   --for-testing           build the tests too and emit an .xctestrun (build-for-testing)

@@ -44,6 +44,7 @@ export const SHARED_BUILD_FLAGS = [
   "--toolchain",
   "--xcconfig",
   "--derived-data",
+  "--artifacts-dir",
   "--jobs",
   "--setting",
   "--sign",
@@ -74,6 +75,7 @@ export const SHARED_BUILD_VALUE_FLAGS = [
   "--toolchain",
   "--xcconfig",
   "--derived-data",
+  "--artifacts-dir",
   "--jobs",
   "--setting",
   "--sanitizer",
@@ -98,6 +100,7 @@ export const BUILD_FLAG_HELP = `  --scheme <name>         scheme to act on (requ
   --toolchain <name>      toolchain identifier or name
   --xcconfig <path>       apply build settings from this file as overrides
   --derived-data <path>   derived data directory
+  --artifacts-dir <path>  where to write this run's log and .xcresult (default: the tool's cache)
   --jobs <n>              maximum concurrent build operations
   --setting KEY=VALUE     build setting override; repeatable or comma-separated
   --sign                  allow code signing (off by default, so simulator builds need no team)
@@ -199,6 +202,8 @@ export interface BuildContext {
   xcodebuildArgs: string[];
   maxErrors: number;
   full: boolean;
+  /** Where to write the log and result bundle, when the caller chose. */
+  artifactsDir: string | undefined;
 }
 
 export interface ResolveBuildContextOptions {
@@ -342,7 +347,20 @@ export async function resolveBuildContext(
     xcodebuildArgs,
     maxErrors: getIntFlag(args, "--max-errors") ?? 20,
     full: hasFlag(args, "--full"),
+    artifactsDir: artifactsDirFrom(args),
   };
+}
+
+/**
+ * Where a run's log and result bundle should go, if the caller said.
+ *
+ * Resolved against the working directory: a CI job asking for `build/` means
+ * the workspace it checked out, and `runBuild` will `mkdir -p` whatever it is
+ * handed from wherever the process happens to be.
+ */
+export function artifactsDirFrom(args: string[]): string | undefined {
+  const dir = getFlag(args, "--artifacts-dir");
+  return dir === undefined ? undefined : resolve(dir);
 }
 
 /** A filesystem stem that distinguishes runs of different commands and devices. */
@@ -371,6 +389,9 @@ export function runAction(options: RunActionOptions): Promise<BuildRun> {
     ],
     label: runLabel(options.context, options.command),
     project: options.context.project,
+    ...(options.context.artifactsDir !== undefined
+      ? { outDir: options.context.artifactsDir }
+      : {}),
   });
 }
 

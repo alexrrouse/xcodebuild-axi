@@ -6,6 +6,27 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- `--artifacts-dir <path>` on the build family (`build`, `test`, `analyze`,
+  `archive`, `tests`), choosing where a run's log and `.xcresult` land. The
+  default is unchanged.
+
+  CI could not collect either one. `artifactDir()` is hardcoded under
+  `~/Library/Caches/xcodebuild-axi/`, which is right for an interactive agent
+  and wrong for a workflow that ends in
+  `upload-artifact: path: build/` -- point such a job at this tool and a red run
+  silently uploads nothing, losing the one output worth reading. A relative path
+  resolves against the working directory, so `--artifacts-dir build/` means the
+  checked-out workspace.
+
+### Changed
+
+- `-resultBundlePath` moves from "reachable without a flag" to **exposed** in
+  the coverage table. The reasoning it carried still holds -- the tool writes
+  the bundle and reads its report back -- it just no longer insists on choosing
+  the location.
+
 ## [0.1.4] - 2026-09-21
 
 ### Added

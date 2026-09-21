@@ -282,8 +282,8 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
     why: "set from the .xcodeproj found in the working directory",
   },
   "-resultBundlePath": {
-    status: "always",
-    why: "every action writes a bundle to the tool's cache — that bundle is what the report is read from",
+    status: "exposed",
+    via: "build --artifacts-dir",
   },
   "-skipMacroValidation": {
     status: "always",
