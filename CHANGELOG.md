@@ -6,6 +6,23 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- `result` reported a **build** bundle as a test run: `result: unknown`,
+  `title: Test - MyApp`, `0 passed / 0 failed`, on an `unknown` destination.
+  This is the same misread 0.1.2 fixed in the home view, in the second place it
+  lives -- and 0.1.2 made it easier to reach rather than harder, because the
+  home view now prints `see \`xcodebuild-axi result <path>\`` and that command
+  then gave the wrong answer.
+
+  `home.ts` discriminates on the name `runLabel` gave the bundle, which `result`
+  cannot do: it takes an arbitrary path, and its own help offers
+  `build/MyApp.xcresult`. So `result` gates the verdict path on the bundle
+  having actually recorded tests, and reports anything else from
+  `build-results`, which carries the real `actionTitle`, `status` and
+  `destination`. A build now reads `result: succeeded`, `title: Build "MyApp"`,
+  with the device it landed on.
+
 ## [0.1.3] - 2026-09-21
 
 ### Fixed
