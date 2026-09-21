@@ -6,6 +6,21 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-21
+
+### Fixed
+
+- `setup hooks` installed a session-start hook with a **10 second timeout**,
+  which is not long enough. The home view runs `xcodebuild -list`, and against
+  a workspace with 16 local Swift packages that resolves the package graph on a
+  cold run: measured 10.9s cold, then 2.9s and 1.4s warm. Cold is exactly the
+  case a session start hits, so the hook would be killed before it produced
+  anything — silently, with no error to notice. The timeout is now 30s, which
+  is a ceiling rather than a cost: a warm run still returns in a second or two.
+
+  Re-run `xcodebuild-axi setup hooks` to repair an already-installed hook; it
+  updates the existing entry in place rather than adding a second one.
+
 ## [0.1.2] - 2026-09-21
 
 ### Fixed
@@ -60,7 +75,8 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.2...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alexrrouse/xcodebuild-axi/releases/tag/v0.1.0

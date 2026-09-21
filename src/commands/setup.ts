@@ -39,6 +39,21 @@ const FLAGS = ["--project", "--status", "--uninstall"] as const;
  */
 const MARKER = "xcodebuild-axi";
 
+/**
+ * How long the session-start hook is allowed to take.
+ *
+ * The SDK defaults to 10s, which is not enough. The home view runs
+ * `xcodebuild -list`, and against a workspace with 16 local Swift packages
+ * that resolves the package graph on a cold run: measured 10.9s cold, then
+ * 2.9s and 1.4s warm. Cold is exactly the case a session start hits, and a
+ * hook that times out contributes nothing at all — the whole point of it is
+ * lost silently, with no error to notice.
+ *
+ * 30s is headroom over the slowest real measurement rather than a guess. It is
+ * a ceiling, not a cost: a warm run still returns in a second or two.
+ */
+const HOOK_TIMEOUT_SECONDS = 30;
+
 export async function setupCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "setup", FLAGS);
 
@@ -81,7 +96,11 @@ export async function setupCommand(args: string[]): Promise<string> {
     return renderOutput([renderFields({ setup: "hooks removed", scope })]);
   }
 
-  await installSessionStartHooks({ scope, marker: MARKER });
+  await installSessionStartHooks({
+    scope,
+    marker: MARKER,
+    timeoutSeconds: HOOK_TIMEOUT_SECONDS,
+  });
   const status = sessionStartHookStatus({ scope, marker: MARKER });
 
   return renderOutput([
