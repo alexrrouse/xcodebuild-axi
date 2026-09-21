@@ -17,7 +17,7 @@ jobs:
     # xcodebuild, and this is the last gate before a version is permanent.
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v5
         with:
