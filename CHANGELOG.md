@@ -6,6 +6,21 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- `settings` takes `--device`, `--destination` and `--sdk`. Build settings are
+  destination-dependent, and without one xcodebuild resolves against the
+  default _device_ SDK -- so `BUILT_PRODUCTS_DIR` came back under
+  `Debug-iphoneos` while `build` and `test` default to a simulator. There was
+  no flag to ask otherwise, which made `settings` the wrong way to locate a
+  simulator `.app`, silently.
+
+### Changed
+
+- `settings` reports `platform:` alongside the scheme, so an answer always
+  names the destination it is for. The default is unchanged -- still the
+  device SDK -- but it no longer looks like the simulator one.
+
 ### Fixed
 
 - `result` reported a **build** bundle as a test run: `result: unknown`,
