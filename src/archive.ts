@@ -92,13 +92,20 @@ export const EXPORT_METHODS = [
  */
 export function exportOptionsPlist(options: {
   method: string;
+  destination?: string;
   teamID?: string;
   signingStyle?: string;
   uploadSymbols?: boolean;
+  manageAppVersionAndBuildNumber?: boolean;
 }): string {
   const entries: string[] = [
     `  <key>method</key>\n  <string>${options.method}</string>`,
   ];
+  if (options.destination) {
+    entries.push(
+      `  <key>destination</key>\n  <string>${options.destination}</string>`,
+    );
+  }
   if (options.teamID) {
     entries.push(`  <key>teamID</key>\n  <string>${options.teamID}</string>`);
   }
@@ -109,6 +116,11 @@ export function exportOptionsPlist(options: {
   }
   if (options.uploadSymbols !== undefined) {
     entries.push(`  <key>uploadSymbols</key>\n  <${options.uploadSymbols}/>`);
+  }
+  if (options.manageAppVersionAndBuildNumber !== undefined) {
+    entries.push(
+      `  <key>manageAppVersionAndBuildNumber</key>\n  <${options.manageAppVersionAndBuildNumber}/>`,
+    );
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
