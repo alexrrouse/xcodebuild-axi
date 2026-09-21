@@ -173,20 +173,19 @@ Every command takes `--help`.
 
 **Coverage: 100% — every one of the 117 options `xcodebuild -help` lists, and 9 of its 10 build actions.**
 
-107 options map to an `xcodebuild-axi` flag. The other 10 are reachable without one:
+108 options map to an `xcodebuild-axi` flag. The other 9 are reachable without one:
 
-| Option                          | How                                                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `-json`                         | every read-only query asks for JSON, then reports TOON                                         |
-| `-project`                      | set from the .xcodeproj found in the working directory                                         |
-| `-resultBundlePath`             | every action writes a bundle to the tool's cache — that bundle is what the report is read from |
-| `-skipMacroValidation`          | macro trust is an interactive prompt in disguise, and an agent cannot answer it                |
-| `-test-enumeration-format`      | always json, so `tests` can parse it                                                           |
-| `-test-enumeration-output-path` | written to the tool's cache and read back, never printed                                       |
-| `-test-enumeration-style`       | always flat; `tests` does its own grouping by target and suite                                 |
-| `-workspace`                    | set from the .xcworkspace found in the working directory                                       |
-| `-help`                         | `xcodebuild-axi --help`, which answers it in a fraction of the tokens                          |
-| `-usage`                        | `xcodebuild-axi <command> --help`, per command rather than all 117 at once                     |
+| Option                          | How                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `-json`                         | every read-only query asks for JSON, then reports TOON                          |
+| `-project`                      | set from the .xcodeproj found in the working directory                          |
+| `-skipMacroValidation`          | macro trust is an interactive prompt in disguise, and an agent cannot answer it |
+| `-test-enumeration-format`      | always json, so `tests` can parse it                                            |
+| `-test-enumeration-output-path` | written to the tool's cache and read back, never printed                        |
+| `-test-enumeration-style`       | always flat; `tests` does its own grouping by target and suite                  |
+| `-workspace`                    | set from the .xcworkspace found in the working directory                        |
+| `-help`                         | `xcodebuild-axi --help`, which answers it in a fraction of the tokens           |
+| `-usage`                        | `xcodebuild-axi <command> --help`, per command rather than all 117 at once      |
 
 The one action left out is `installsrc` — it copies sources into `SRCROOT` as root, which is a packaging step rather than anything an agent loop needs.
 

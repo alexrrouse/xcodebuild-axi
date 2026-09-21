@@ -21,7 +21,7 @@ import { getFlag, rejectUnknownFlags } from "../args.js";
 export const ARCHIVE_HELP = `usage: xcodebuild-axi archive [flags]
 Archives a scheme and reports the archive's identity — bundle id, version, and
 build number — so the next step does not need a second lookup.
-flags[46]:
+flags[47]:
 ${BUILD_FLAG_HELP}
   --archive-path <path>   where to write the .xcarchive (default: the tool's cache)
 ${AUTH_FLAG_HELP}
