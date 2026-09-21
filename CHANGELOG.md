@@ -6,6 +6,18 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-21
+
+No code changes. The published files are byte-identical to 0.1.0.
+
+### Changed
+
+- Released through npm trusted publishing, so this version carries a
+  **provenance attestation** linking the tarball to the workflow run and commit
+  that built it. 0.1.0 was published by hand and cannot have one: neither a
+  scoped token nor a trusted publisher can be configured for a package that
+  does not exist yet.
+
 ## [0.1.0] - 2026-09-21
 
 First release.
@@ -31,5 +43,6 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alexrrouse/xcodebuild-axi/releases/tag/v0.1.0
