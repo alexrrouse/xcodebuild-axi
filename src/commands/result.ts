@@ -5,6 +5,7 @@ import {
   readBuildResults,
   readTestSummary,
   toDiagnostics,
+  type BuildResults,
 } from "../xcresult.js";
 import { diagnosticsBlock } from "../report.js";
 import {
@@ -71,7 +72,15 @@ export async function resultCommand(args: string[]): Promise<string> {
 
   const blocks: string[] = [];
 
-  if (summary?.totalTestCount !== undefined) {
+  // `xcresulttool` answers the test-shaped query for *any* bundle, so a build
+  // comes back as `{title: "Test - X", totalTestCount: 0, result: "unknown"}`
+  // rather than as nothing. Reading that as a verdict rendered a build as
+  // `result: unknown / title: Test - X / 0 passed / 0 failed`, which is the
+  // shape of a clean pass. `home.ts` fixed the same misread by trusting the
+  // name `runLabel` gave the bundle, but `result` takes an arbitrary path --
+  // its own help offers `build/MyApp.xcresult` -- so the name proves nothing
+  // here and the count is the discriminator instead.
+  if (summary && (summary.totalTestCount ?? 0) > 0) {
     const device = summary.devicesAndConfigurations?.[0]?.device;
     blocks.push(
       renderFields({
@@ -109,6 +118,8 @@ export async function resultCommand(args: string[]): Promise<string> {
     } else if (failuresOnly) {
       blocks.push(renderFields({ failures: "0 test failures in this bundle" }));
     }
+  } else if (build) {
+    blocks.push(renderFields(buildFields(build)));
   }
 
   if (build) {
@@ -150,6 +161,24 @@ export async function resultCommand(args: string[]): Promise<string> {
   blocks.push(renderHelp(hints));
 
   return renderOutput(blocks);
+}
+
+/**
+ * The header a non-test bundle reports. A build bundle carries every field the
+ * test-shaped query lacks: `actionTitle` names the action xcodebuild ran,
+ * `status` is the verdict it recorded, and `destination` is the device it
+ * actually landed on.
+ */
+export function buildFields(build: BuildResults): Record<string, string> {
+  return {
+    result: build.status?.toLowerCase() ?? "unknown",
+    title: build.actionTitle ?? "",
+    destination: describeDevice(build.destination),
+    duration:
+      build.startTime !== undefined && build.endTime !== undefined
+        ? duration(build.endTime - build.startTime)
+        : "unknown",
+  };
 }
 
 function expandTilde(path: string): string {
