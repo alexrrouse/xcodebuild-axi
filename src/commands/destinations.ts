@@ -1,6 +1,7 @@
 import { requireProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
 import { listDestinations } from "../destination.js";
+import type { Destination } from "../destination.js";
 import { renderFields, renderHelp, renderList, renderOutput } from "../toon.js";
 import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 
@@ -52,12 +53,14 @@ export async function destinationsCommand(args: string[]): Promise<string> {
     ]);
   }
 
-  const rows = destinations.map((destination) => ({
-    name: destination.name,
-    platform: destination.platform.replace("Simulator", "Sim"),
-    os: destination.os,
-    ...(all ? { eligible: destination.eligible ? "yes" : "no" } : {}),
-  }));
+  const rows = collapse(
+    destinations.map((destination) => ({
+      name: destination.name,
+      platform: destination.platform.replace("Simulator", "Sim"),
+      os: destination.os,
+      ...(all ? { eligible: destination.eligible ? "yes" : "no" } : {}),
+    })),
+  );
 
   return renderOutput([
     renderFields({ scheme }),
@@ -65,6 +68,54 @@ export async function destinationsCommand(args: string[]): Promise<string> {
     renderHelp([
       `Run \`xcodebuild-axi test --scheme ${scheme} --device "<name>"\` to run there`,
       `Run \`xcodebuild-axi build --scheme ${scheme}\` to use the newest simulator automatically`,
+      ...variantHelp(destinations),
     ]),
   ]);
+}
+
+/**
+ * Collapse rows that differ only in something no flag here can select.
+ *
+ * xcodebuild lists macOS once per arch and once per variant, all four sharing
+ * one udid — so a Mac shows up as four byte-identical rows once the arch and
+ * variant are projected away. `--device` takes a name, so those were four
+ * ways of typing the same thing, and the agent reading them had no way to
+ * tell which one it had picked.
+ *
+ * Deduping on the printed row rather than on the destination is deliberate:
+ * what is hidden is exactly what was not shown to begin with.
+ */
+export function collapse(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = JSON.stringify(row);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * The variants the collapsed rows stopped naming.
+ *
+ * `-destination` cannot tell them apart from a name and a udid, so they are
+ * not something `--device` can reach — but `--destination` passes a specifier
+ * through untouched, and that spelling is the unguessable part. One line,
+ * only when there is a variant to name.
+ */
+export function variantHelp(destinations: Destination[]): string[] {
+  const byName = new Map<string, Set<string>>();
+  for (const destination of destinations) {
+    if (destination.variant.length === 0) continue;
+    const variants = byName.get(destination.name) ?? new Set<string>();
+    variants.add(destination.variant);
+    byName.set(destination.name, variants);
+  }
+
+  return [...byName].map(
+    ([name, variants]) =>
+      `${name} also builds as ${[...variants].join(", ")} — reach one with \`--destination 'platform=macOS,variant=${[...variants][0]}'\``,
+  );
 }

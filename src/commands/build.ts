@@ -114,8 +114,9 @@ function pickAction(args: string[]): string {
  *   install sources to path", the same shape as its refusal to overwrite a
  *   result bundle.
  * - **It copies the whole project directory**, build products included — a
- *   271 MB checkout came out as 270 MB, of which most was DerivedData. It is
- *   a packaging step rather than a source export, and the report says so.
+ *   271 MB checkout came out as 258 MB across 5,104 files, most of it
+ *   DerivedData. It is a packaging step rather than a source export, and the
+ *   report says so.
  *
  * The default destination is this project's cache directory, because
  * everything else here writes only there. A caller who wants it somewhere

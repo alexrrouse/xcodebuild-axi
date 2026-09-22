@@ -8,6 +8,12 @@ export interface Destination {
   id: string;
   os: string;
   arch: string;
+  /**
+   * The flavour of the platform: "Mac Catalyst", "DriverKit",
+   * "Designed for [iPad,iPhone]". Empty for everything else, including every
+   * simulator.
+   */
+  variant: string;
   /** xcodebuild listed it under "Ineligible destinations". */
   eligible: boolean;
 }
@@ -17,8 +23,9 @@ export interface Destination {
  *
  * Rows look like
  *   { platform:iOS Simulator, arch:arm64, id:55D8…, OS:26.5, name:iPad (A16) }
- * Values are unquoted and can contain spaces and parentheses, so the split is
- * driven by the next `key:` rather than by commas.
+ * Values are unquoted and can contain spaces, parentheses and commas — the
+ * macOS variant really is spelled `variant:Designed for [iPad,iPhone]` — so
+ * the split is driven by the next `key:` rather than by commas.
  */
 export function parseDestinationLine(line: string): Destination | undefined {
   const inner = line.trim().match(/^\{(.*)\}$/)?.[1];
@@ -40,13 +47,23 @@ export function parseDestinationLine(line: string): Destination | undefined {
     id: fields["id"] ?? "",
     os: fields["OS"] ?? "",
     arch: fields["arch"] ?? "",
+    variant: fields["variant"] ?? "",
     eligible: true,
   };
 }
 
-/** Placeholders ("Any iOS Device") are not runnable and only add rows. */
-function isPlaceholder(destination: Destination): boolean {
-  return destination.id.includes("placeholder");
+/**
+ * Placeholders ("Any iOS Device", "Any Mac") are not runnable and only add rows.
+ *
+ * They are spelled differently per container, which is the part that bites: a
+ * project gives them an id ending in `placeholder`, and a Swift package omits
+ * `id` altogether. Matching only the first let "Any Mac" and "Any DriverKit
+ * Host" through on every package — and into `pickDefault`'s pool, where a
+ * package with no eligible simulator could be built against a destination
+ * that names no device at all. Verified against a Package.swift on Xcode 27.
+ */
+export function isPlaceholder(destination: Destination): boolean {
+  return destination.id.length === 0 || destination.id.includes("placeholder");
 }
 
 export async function listDestinations(

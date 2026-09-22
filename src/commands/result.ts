@@ -410,7 +410,14 @@ async function runExport(
     );
   }
 
-  await exportBundle({ path, kind, outputPath, testId, filter, onlyFailures });
+  await exportBundle({
+    path,
+    kind,
+    outputPath,
+    ...(testId !== undefined ? { testId } : {}),
+    ...(filter !== undefined ? { filter } : {}),
+    onlyFailures,
+  });
 
   const files = walkFiles(outputPath).filter(
     (file) => basename(file.path) !== MANIFEST,
@@ -753,7 +760,7 @@ function diagnosticRows(outputPath: string): Array<Record<string, unknown>> {
         report: entry.name,
         files: files.length,
         size: byteSize(files.reduce((sum, file) => sum + file.bytes, 0)),
-      } as unknown as Record<string, string>;
+      };
     })
     .sort((a, b) => String(a.report).localeCompare(String(b.report)));
 }

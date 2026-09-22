@@ -278,7 +278,7 @@ async function readMode(
         max,
       );
     case "--merge":
-      return runMerge(path, args, max);
+      return runMerge(args, max);
   }
 }
 
@@ -524,11 +524,7 @@ export function movement(delta: number): string {
  * bundles are unpacked first — the two-step that makes this something people
  * give up on doing in CI.
  */
-async function runMerge(
-  first: string,
-  args: string[],
-  max: number,
-): Promise<string> {
+async function runMerge(args: string[], max: number): Promise<string> {
   const paths = positionals(args, VALUE_FLAGS).map((path) =>
     resolve(expandTilde(path)),
   );

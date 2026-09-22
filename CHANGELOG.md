@@ -6,6 +6,40 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- **`destinations` no longer prints rows an agent cannot tell apart.**
+  xcodebuild lists macOS once per arch and once per variant, so one Mac came
+  back as four byte-identical `My Mac,macOS,""` rows — the arch and the
+  variant that distinguish them were never parsed, and `--device` takes a
+  name, so they were four ways of typing the same thing. They collapse to one
+  row, and the variants are named in `help[]` with the `--destination`
+  spelling that actually reaches them, which costs nothing on a scheme that
+  has none. A 23-row list for a plain Swift package came down to 17.
+
+- **Generic destinations no longer leak out of a Swift package.** Placeholders
+  were filtered by an id ending in `placeholder`, which is how a _project_
+  spells them; a package omits `id` entirely, so "Any Mac" and "Any DriverKit
+  Host" were listed as if they were runnable and were eligible for
+  `pickDefault` to choose. An absent id now counts as a placeholder too.
+
+- **`export` no longer leaves a temp directory behind on every run.** The
+  options plist it generates for you was written to a fresh `mkdtemp`
+  directory that nothing ever removed. It now lands beside the log and the
+  result bundle as `<archive>-ExportOptions.plist`, which is also where you
+  would look for it when a signing choice comes out wrong.
+
+### Notes
+
+- `build`, `analyze` and `archive` report the destination they resolved rather
+  than re-reading it from the result bundle the way `test` does. `AGENTS.md`
+  claimed the readback was universal; the udid already pins which device ran,
+  so the only real difference is that the platform is not named.
+
+- `tsconfig.json` turns on `noUnusedLocals`, `noUnusedParameters` and
+  `exactOptionalPropertyTypes`. The three things they found are fixed. Note
+  that `test/` is still outside the typechecked set.
+
 ## [0.1.14] - 2026-09-22
 
 ### Added

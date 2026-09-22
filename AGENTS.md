@@ -205,11 +205,29 @@ remove that fallback believing the bundle is always sufficient; it is not.
   came out as 258 MB across 5,104 files, most of it DerivedData. It is a
   packaging step wearing a source export's name, and `build --install-src`
   says so in its report.
+- **Generic destinations are spelled differently per container.** A project
+  lists "Any Mac" with an id ending in `placeholder`; a Swift package lists it
+  with no `id` field at all. So an `id.includes("placeholder")` filter passes
+  every package's placeholders straight through — into the `destinations`
+  list, and into `pickDefault`'s pool. `isPlaceholder` treats an absent id as
+  the same thing.
+- **macOS is listed once per arch and once per variant.** Four rows come back
+  for one Mac — plain, `variant:Mac Catalyst`, `variant:DriverKit`,
+  `variant:Designed for [iPad,iPhone]` — all sharing one udid, so
+  `-destination` cannot tell them apart unless the caller passes `variant=`
+  themselves. `destinations` collapses them to one row and names the variants
+  in `help[]` instead, because four identical rows told the agent nothing it
+  could act on. Note the variant value really does contain a comma, which is
+  why `parseDestinationLine` splits on the next `key:` rather than on commas.
 - **Simulator names are not unique.** Two runtimes routinely publish an
   "iPhone 17 Pro", and a `name=`-based destination silently resolves to
   whichever xcodebuild sees first. `src/destination.ts` always resolves to a
-  udid, and the reported destination is read back out of the bundle so a pass
-  is never attributed to the wrong OS.
+  udid, and `test` reads the destination back out of the result bundle, so a
+  pass is never attributed to the wrong OS. `build`, `analyze` and `archive`
+  report the destination they resolved rather than re-reading it — the udid
+  already pins which device ran, so the only difference is that they do not
+  name the platform the way the bundle does (`iPhone 17 · 26.5` against
+  `iPhone 17 · iOS Simulator 26.5`).
 - **A cross-platform Swift package is eligible for every platform it
   supports.** Sorting those by OS version alone lands on whichever carries the
   highest number — a watchOS build for a package nobody was thinking about
