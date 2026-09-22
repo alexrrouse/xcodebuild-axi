@@ -60,7 +60,7 @@ export async function archiveCommand(args: string[]): Promise<string> {
 
   const archivePath =
     getFlag(args, "--archive-path") ??
-    join(artifactDir(context.project), `${context.scheme}.xcarchive`);
+    join(artifactDir(context.project), `${context.subject.slug}.xcarchive`);
 
   const run = await runAction({
     context,

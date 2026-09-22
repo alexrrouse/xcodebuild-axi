@@ -121,6 +121,12 @@ export interface Subject {
   /** `-scheme X`, `-target A -target B`, or `-alltargets`. */
   flags: string[];
   /**
+   * A filesystem-safe stem for artifacts. `label` is written for a reader and
+   * can hold spaces and commas; a log file named `all targets-clean.log`
+   * is a path every shell needs quoting for.
+   */
+  slug: string;
+  /**
    * The same selection spelled as this tool's own flags, for a rerun hint.
    * Not derivable from `label`: "all targets" is prose, and a hint that says
    * `--target all targets` is a command that does not run.
@@ -168,12 +174,14 @@ export async function resolveSubject(
     return args.allTargets
       ? {
           label: "all targets",
+          slug: "all-targets",
           flags: ["-alltargets"],
           rerun: "--all-targets",
           targetMode,
         }
       : {
           label: args.targets.join(","),
+          slug: args.targets.join("-"),
           flags: args.targets.flatMap((target) => ["-target", target]),
           rerun: args.targets.map((target) => `--target ${target}`).join(" "),
           targetMode,
@@ -183,6 +191,7 @@ export async function resolveSubject(
   const scheme = await requireScheme(project, args.scheme, command);
   return {
     label: scheme,
+    slug: scheme,
     flags: ["-scheme", scheme],
     rerun: `--scheme ${scheme}`,
     targetMode,

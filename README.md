@@ -184,7 +184,7 @@ A leaf is one switch you could type. Counting options alone says 100% (117/117),
 | `-create-xcframework` options                          | 8       | 8 (100%)        |
 | **total**                                              | **161** | **147 (91.3%)** |
 
-**Reach: 95.7%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 14 pairs are open.
+**Reach: 100%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 0 pairs are open.
 
 108 options map to an `xcodebuild-axi` flag. The other 9 are reachable without one:
 
@@ -214,24 +214,10 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Still open
 
-59 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
+45 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
 
 | Leaf                                                        | Unreachable from | What that costs                                                                                         |
 | ----------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `-alltargets`                                               | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-arch`                                                     | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-derivedDataPath`                                          | `packages`       | resolved packages land in derived data, which cannot be redirected                                      |
-| `-destination`                                              | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-destination-timeout`                                      | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-only-testing`                                             | `tests`          | enumeration cannot be constrained the way the run that follows it is                                    |
-| `-sdk`                                                      | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-skip-testing`                                             | `tests`          | enumeration cannot be constrained the way the run that follows it is                                    |
-| `-target`                                                   | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-toolchain`                                                | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-xcconfig`                                                 | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
-| `-resultBundlePath`                                         | `clean`          | writes a result bundle the caller cannot redirect                                                       |
-| `-quiet`                                                    | `clean`          | the clean log cannot be quieted                                                                         |
-| `-verbose`                                                  | `clean`          | the clean log cannot be made verbose                                                                    |
 | `-version -sdk <name> <infoitem>`                           | `info`           | `info --sdks` lists canonical names; an SDK's Path or ProductBuildVersion cannot be asked for           |
 | `<buildsetting>=<value>`                                    | `build`          | an override can be resolved but not built with, so `--setting` answers a question it cannot then act on |
 | `provisioningProfiles` (export options)                     | `export`         | manual signing can be asked for but not completed — the profile per executable has no flag              |

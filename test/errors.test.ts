@@ -23,6 +23,16 @@ describe("mapXcodebuildError", () => {
     expect(mapped?.code).toBe("DESTINATION_NOT_FOUND");
   });
 
+  // A package has no default destination at all, and the raw refusal names
+  // -showdestinations, which is not a thing this tool asks anyone to run.
+  it("recognizes a Swift package asked to build with no destination", () => {
+    const mapped = mapXcodebuildError(
+      'xcodebuild: error: Building a Swift package requires that a destination is provided using the "-destination" option.',
+    );
+    expect(mapped?.code).toBe("DESTINATION_NOT_FOUND");
+    expect(mapped?.suggestions.join(" ")).toContain("--device");
+  });
+
   it("recognizes the leftover result bundle that blocks a re-run", () => {
     const mapped = mapXcodebuildError(
       "error: Existing file at -resultBundlePath",
