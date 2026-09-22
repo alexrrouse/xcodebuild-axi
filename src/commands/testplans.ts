@@ -13,8 +13,10 @@ examples:
   xcodebuild-axi testplans --scheme MyApp
 `;
 
+export const TESTPLANS_FLAGS = ["--scheme"] as const;
+
 export async function testplansCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "testplans", ["--scheme"], ["--scheme"]);
+  rejectUnknownFlags(args, "testplans", TESTPLANS_FLAGS, TESTPLANS_FLAGS);
 
   const project = requireProject();
   const scheme = await requireScheme(

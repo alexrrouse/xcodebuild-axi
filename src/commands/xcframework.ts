@@ -19,10 +19,15 @@ examples:
   xcodebuild-axi xcframework --output Out.xcframework --library libA.a --headers include
 `;
 
-const FLAGS = ["--output", "--framework", "--library", "--headers"] as const;
+export const XCFRAMEWORK_FLAGS = [
+  "--output",
+  "--framework",
+  "--library",
+  "--headers",
+] as const;
 
 export async function xcframeworkCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "xcframework", FLAGS, FLAGS);
+  rejectUnknownFlags(args, "xcframework", XCFRAMEWORK_FLAGS, XCFRAMEWORK_FLAGS);
 
   const output = getFlag(args, "--output");
   if (output === undefined) {

@@ -37,7 +37,7 @@ examples:
   xcodebuild-axi tests --scheme MyApp --filter AppFeature --list
 `;
 
-const FLAGS = [
+export const TESTS_FLAGS = [
   ...SHARED_BUILD_FLAGS,
   "--test-plan",
   "--filter",
@@ -60,7 +60,7 @@ interface EnumerationFile {
 }
 
 export async function testsCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "tests", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "tests", TESTS_FLAGS, VALUE_FLAGS);
 
   const context = await resolveBuildContext({ args, command: "tests" });
   const outputPath = join(

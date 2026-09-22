@@ -26,10 +26,10 @@ examples:
   xcodebuild-axi sim shutdown --all
 `;
 
-const FLAGS = ["--runtime", "--booted", "--all"] as const;
+export const SIM_FLAGS = ["--runtime", "--booted", "--all"] as const;
 
 export async function simCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "sim", FLAGS, ["--runtime"]);
+  rejectUnknownFlags(args, "sim", SIM_FLAGS, ["--runtime"]);
 
   const [subcommand, target] = positionals(args, ["--runtime"]);
 

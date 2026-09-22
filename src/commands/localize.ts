@@ -38,7 +38,7 @@ examples:
   xcodebuild-axi localize import --path build/loc/fr.xcloc --merge
 `;
 
-const FLAGS = [
+export const LOCALIZE_FLAGS = [
   "--path",
   "--language",
   "--default-language",
@@ -55,7 +55,7 @@ const VALUE_FLAGS = [
 ] as const;
 
 export async function localizeCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "localize", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "localize", LOCALIZE_FLAGS, VALUE_FLAGS);
 
   const [mode] = positionals(args, VALUE_FLAGS);
   if (mode !== "export" && mode !== "import") {

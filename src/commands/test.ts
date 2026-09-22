@@ -72,7 +72,7 @@ examples:
   xcodebuild-axi test --scheme MyApp --coverage
 `;
 
-const FLAGS = [
+export const TEST_FLAGS = [
   ...SHARED_BUILD_FLAGS,
   "--test-plan",
   "--only",
@@ -123,7 +123,7 @@ const VALUE_FLAGS = [
 ] as const;
 
 export async function testCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "test", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "test", TEST_FLAGS, VALUE_FLAGS);
 
   if (hasFlag(args, "--retry") && hasFlag(args, "--until-failure")) {
     // xcodebuild rejects this combination itself, but only after building.

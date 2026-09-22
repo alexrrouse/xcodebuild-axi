@@ -28,14 +28,14 @@ examples:
   xcodebuild-axi migrate --project App/App.xcodeproj --format "Xcode 27.0" --yes
 `;
 
-const FLAGS = ["--format", "--project", "--yes"] as const;
+export const MIGRATE_FLAGS = ["--format", "--project", "--yes"] as const;
 const VALUE_FLAGS = ["--format", "--project"] as const;
 
 /** A name no Xcode will ever ship, used to make xcodebuild list the real ones. */
 const IMPOSSIBLE_FORMAT = "__xcodebuild-axi-probe__";
 
 export async function migrateCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "migrate", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "migrate", MIGRATE_FLAGS, VALUE_FLAGS);
 
   const context = requireProject();
   if (context.kind === "package") {

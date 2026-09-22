@@ -3,34 +3,76 @@ import { runAxiCli } from "axi-sdk-js";
 import { AxiError, exitCodeForError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { homeCommand } from "./commands/home.js";
-import { buildCommand, BUILD_HELP } from "./commands/build.js";
-import { testCommand, TEST_HELP } from "./commands/test.js";
-import { testsCommand, TESTS_HELP } from "./commands/tests.js";
-import { cleanCommand, CLEAN_HELP } from "./commands/clean.js";
-import { analyzeCommand, ANALYZE_HELP } from "./commands/analyze.js";
-import { archiveCommand, ARCHIVE_HELP } from "./commands/archive.js";
-import { exportCommand, EXPORT_HELP } from "./commands/export.js";
-import { schemesCommand, SCHEMES_HELP } from "./commands/schemes.js";
+import { buildCommand, BUILD_HELP, BUILD_FLAGS } from "./commands/build.js";
+import { testCommand, TEST_HELP, TEST_FLAGS } from "./commands/test.js";
+import { testsCommand, TESTS_HELP, TESTS_FLAGS } from "./commands/tests.js";
+import { cleanCommand, CLEAN_HELP, CLEAN_FLAGS } from "./commands/clean.js";
+import {
+  analyzeCommand,
+  ANALYZE_HELP,
+  ANALYZE_FLAGS,
+} from "./commands/analyze.js";
+import {
+  archiveCommand,
+  ARCHIVE_HELP,
+  ARCHIVE_FLAGS,
+} from "./commands/archive.js";
+import { exportCommand, EXPORT_HELP, EXPORT_FLAGS } from "./commands/export.js";
+import {
+  schemesCommand,
+  SCHEMES_HELP,
+  SCHEMES_FLAGS,
+} from "./commands/schemes.js";
 import {
   destinationsCommand,
   DESTINATIONS_HELP,
+  DESTINATIONS_FLAGS,
 } from "./commands/destinations.js";
-import { testplansCommand, TESTPLANS_HELP } from "./commands/testplans.js";
-import { settingsCommand, SETTINGS_HELP } from "./commands/settings.js";
-import { packagesCommand, PACKAGES_HELP } from "./commands/packages.js";
-import { resultCommand, RESULT_HELP } from "./commands/result.js";
-import { coverageCommand, COVERAGE_HELP } from "./commands/coverage.js";
-import { simCommand, SIM_HELP } from "./commands/sim.js";
-import { infoCommand, INFO_HELP } from "./commands/info.js";
-import { localizeCommand, LOCALIZE_HELP } from "./commands/localize.js";
+import {
+  testplansCommand,
+  TESTPLANS_HELP,
+  TESTPLANS_FLAGS,
+} from "./commands/testplans.js";
+import {
+  settingsCommand,
+  SETTINGS_HELP,
+  SETTINGS_FLAGS,
+} from "./commands/settings.js";
+import {
+  packagesCommand,
+  PACKAGES_HELP,
+  PACKAGES_FLAGS,
+} from "./commands/packages.js";
+import { resultCommand, RESULT_HELP, RESULT_FLAGS } from "./commands/result.js";
+import {
+  coverageCommand,
+  COVERAGE_HELP,
+  COVERAGE_FLAGS,
+} from "./commands/coverage.js";
+import { simCommand, SIM_HELP, SIM_FLAGS } from "./commands/sim.js";
+import { infoCommand, INFO_HELP, INFO_FLAGS } from "./commands/info.js";
+import {
+  localizeCommand,
+  LOCALIZE_HELP,
+  LOCALIZE_FLAGS,
+} from "./commands/localize.js";
 import {
   xcframeworkCommand,
   XCFRAMEWORK_HELP,
+  XCFRAMEWORK_FLAGS,
 } from "./commands/xcframework.js";
-import { findCommand, FIND_HELP } from "./commands/find.js";
-import { platformsCommand, PLATFORMS_HELP } from "./commands/platforms.js";
-import { migrateCommand, MIGRATE_HELP } from "./commands/migrate.js";
-import { setupCommand, SETUP_HELP } from "./commands/setup.js";
+import { findCommand, FIND_HELP, FIND_FLAGS } from "./commands/find.js";
+import {
+  platformsCommand,
+  PLATFORMS_HELP,
+  PLATFORMS_FLAGS,
+} from "./commands/platforms.js";
+import {
+  migrateCommand,
+  MIGRATE_HELP,
+  MIGRATE_FLAGS,
+} from "./commands/migrate.js";
+import { setupCommand, SETUP_HELP, SETUP_FLAGS } from "./commands/setup.js";
 
 export const DESCRIPTION =
   "Agent-ergonomic wrapper around xcodebuild. Prefer it over raw `xcodebuild` for any build / test / inspect of an Xcode project.";
@@ -80,6 +122,38 @@ export const COMMAND_HELP: Record<string, string> = {
   xcframework: XCFRAMEWORK_HELP,
   find: FIND_HELP,
   setup: SETUP_HELP,
+};
+
+/**
+ * Every command's accepted flag set, keyed by command name.
+ *
+ * `src/surface.ts` declares which commands *should* reach a given xcodebuild
+ * option; this is the ground truth it is checked against, so a `via` that
+ * names a flag the command would reject fails the build rather than the user.
+ */
+export const COMMAND_FLAGS: Record<string, readonly string[]> = {
+  build: BUILD_FLAGS,
+  test: TEST_FLAGS,
+  tests: TESTS_FLAGS,
+  clean: CLEAN_FLAGS,
+  analyze: ANALYZE_FLAGS,
+  archive: ARCHIVE_FLAGS,
+  export: EXPORT_FLAGS,
+  schemes: SCHEMES_FLAGS,
+  destinations: DESTINATIONS_FLAGS,
+  testplans: TESTPLANS_FLAGS,
+  settings: SETTINGS_FLAGS,
+  packages: PACKAGES_FLAGS,
+  result: RESULT_FLAGS,
+  coverage: COVERAGE_FLAGS,
+  sim: SIM_FLAGS,
+  info: INFO_FLAGS,
+  localize: LOCALIZE_FLAGS,
+  xcframework: XCFRAMEWORK_FLAGS,
+  find: FIND_FLAGS,
+  platforms: PLATFORMS_FLAGS,
+  migrate: MIGRATE_FLAGS,
+  setup: SETUP_FLAGS,
 };
 
 const COMMANDS = {

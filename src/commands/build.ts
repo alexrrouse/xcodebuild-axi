@@ -26,7 +26,7 @@ examples:
   xcodebuild-axi build --scheme MyApp --for-testing
 `;
 
-const FLAGS = [
+export const BUILD_FLAGS = [
   ...SHARED_BUILD_FLAGS,
   "--clean",
   "--for-testing",
@@ -35,7 +35,7 @@ const FLAGS = [
 ] as const;
 
 export async function buildCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "build", FLAGS, SHARED_BUILD_VALUE_FLAGS);
+  rejectUnknownFlags(args, "build", BUILD_FLAGS, SHARED_BUILD_VALUE_FLAGS);
 
   const action = pickAction(args);
   const context = await resolveBuildContext({ args, command: "build" });

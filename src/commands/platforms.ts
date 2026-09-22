@@ -53,7 +53,7 @@ examples:
   xcodebuild-axi platforms license
 `;
 
-const FLAGS = [
+export const PLATFORMS_FLAGS = [
   "--all",
   "--export-path",
   "--build-version",
@@ -82,7 +82,7 @@ const PLATFORMS = ["iOS", "watchOS", "tvOS", "visionOS"] as const;
 const COMPONENT_OPS = ["show", "download", "import", "delete"] as const;
 
 export async function platformsCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "platforms", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "platforms", PLATFORMS_FLAGS, VALUE_FLAGS);
 
   const [subcommand, ...rest] = positionals(args, VALUE_FLAGS);
 

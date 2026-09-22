@@ -10,8 +10,10 @@ examples:
   xcodebuild-axi schemes
 `;
 
+export const SCHEMES_FLAGS = [] as const;
+
 export async function schemesCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "schemes", []);
+  rejectUnknownFlags(args, "schemes", SCHEMES_FLAGS);
 
   const project = requireProject();
   const info = await listSchemes(project);

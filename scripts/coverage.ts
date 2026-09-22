@@ -6,6 +6,10 @@
  * `--check` in CI to fail on three kinds of drift — a stale README, an option
  * the map has never heard of (a new Xcode shipped one), and an option the map
  * still claims that xcodebuild has dropped.
+ *
+ * What the map *claims* about each command — that `settings --target` exists,
+ * say — is checked against the commands themselves in `test/surface.test.ts`,
+ * where a wrong claim fails as a test rather than as a rendering.
  */
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -16,8 +20,16 @@ import { format, resolveConfig } from "prettier";
 import {
   ACTION_COVERAGE,
   AUTHORED_AGAINST,
+  COMPANION_SURFACES,
+  EXPORT_OPTION_COVERAGE,
+  FORM_COVERAGE,
   OPTION_COVERAGE,
+  XCFRAMEWORK_COVERAGE,
+  describe,
+  gaps,
+  reach,
   tally,
+  type CoverageTally,
   type OptionCoverage,
 } from "../src/surface.js";
 
@@ -70,24 +82,95 @@ async function liveXcodeVersion(): Promise<string | undefined> {
   }
 }
 
-function describe(entry: OptionCoverage): string {
-  return entry.status === "exposed" ? entry.via : entry.why;
+/**
+ * The xcodebuild surfaces, counted as leaves — one documented switch, key, or
+ * sub-option each. `-exportOptionsPlist` is one option and eighteen leaves,
+ * and for a long time only the option was counted.
+ */
+const XCODEBUILD_SURFACES: Array<{
+  name: string;
+  what: string;
+  map: Record<string, OptionCoverage>;
+}> = [
+  { name: "`xcodebuild -help` options", what: "options", map: OPTION_COVERAGE },
+  { name: "build actions", what: "actions", map: ACTION_COVERAGE },
+  {
+    name: "second forms (`-version <infoitem>`, `-license check`)",
+    what: "forms",
+    map: FORM_COVERAGE,
+  },
+  {
+    name: "`-exportOptionsPlist` keys",
+    what: "keys",
+    map: EXPORT_OPTION_COVERAGE,
+  },
+  {
+    name: "`-create-xcframework` options",
+    what: "options",
+    map: XCFRAMEWORK_COVERAGE,
+  },
+];
+
+function totals(maps: Record<string, OptionCoverage>[]): CoverageTally {
+  const merged = maps.reduce<Record<string, OptionCoverage>>(
+    (all, map, index) => {
+      for (const [key, entry] of Object.entries(map))
+        all[`${index}:${key}`] = entry;
+      return all;
+    },
+    {},
+  );
+  return tally(merged);
+}
+
+function surfaceRows(
+  surfaces: Array<{ name: string; map: Record<string, OptionCoverage> }>,
+): string[] {
+  return surfaces.map(({ name, map }) => {
+    const counts = tally(map);
+    return `| ${name} | ${counts.total} | ${counts.covered} (${counts.percent}%) |`;
+  });
+}
+
+/** The open list: every leaf that should exist and does not, yet. */
+function openGaps(): string[] {
+  const rows: string[] = [];
+
+  for (const { option, command, why } of gaps(OPTION_COVERAGE)) {
+    rows.push(`| \`${option}\` | \`${command}\` | ${why} |`);
+  }
+
+  const missingFrom = (
+    map: Record<string, OptionCoverage>,
+    label: (key: string) => string,
+  ) => {
+    for (const [key, entry] of Object.entries(map)) {
+      if (entry.status !== "missing") continue;
+      rows.push(`| ${label(key)} | \`${entry.from ?? "?"}\` | ${entry.why} |`);
+    }
+  };
+
+  missingFrom(FORM_COVERAGE, (key) => `\`${key}\``);
+  missingFrom(EXPORT_OPTION_COVERAGE, (key) => `\`${key}\` (export options)`);
+  missingFrom(XCFRAMEWORK_COVERAGE, (key) => `\`${key}\` (xcframework)`);
+  for (const [tool, map] of Object.entries(COMPANION_SURFACES)) {
+    missingFrom(map, (key) => `\`${tool} ${key}\``);
+  }
+  return rows;
 }
 
 function renderSection(): string {
   const options = tally(OPTION_COVERAGE);
-  const actions = tally(ACTION_COVERAGE);
+  const overall = totals(XCODEBUILD_SURFACES.map((surface) => surface.map));
+  const reachable = reach(OPTION_COVERAGE);
+  const companions = totals(Object.values(COMPANION_SURFACES));
+  const open = openGaps();
 
   const rows = (status: OptionCoverage["status"]) =>
     Object.entries(OPTION_COVERAGE)
       .filter(([, entry]) => entry.status === status)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([flag, entry]) => `| \`${flag}\` | ${describe(entry)} |`);
-
-  const uncovered = Object.entries(OPTION_COVERAGE)
-    .filter(([, entry]) => entry.status === "n/a")
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([flag, entry]) => `| \`${flag}\` | ${describe(entry)} |`);
 
   const actionGaps = Object.entries(ACTION_COVERAGE)
     .filter(([, entry]) => entry.status === "n/a")
@@ -96,7 +179,16 @@ function renderSection(): string {
   return [
     START,
     "",
-    `**Coverage: ${options.percent}% — every one of the ${options.total} options \`xcodebuild -help\` lists, and ${actions.covered} of its ${actions.total} build actions.**`,
+    `**Coverage: ${overall.percent}% of the ${overall.total} leaves \`xcodebuild\` documents** — every option, build action, export options key, \`-create-xcframework\` argument, and the second forms that only a usage line mentions.`,
+    "",
+    `A leaf is one switch you could type. Counting options alone says ${options.percent}% (${options.total}/${options.total}), which was true and hid every gap below: an option is one thing, and \`-exportOptionsPlist\` alone opens eighteen more.`,
+    "",
+    "| Surface | Leaves | Covered |",
+    "| --- | --- | --- |",
+    ...surfaceRows(XCODEBUILD_SURFACES),
+    `| **total** | **${overall.total}** | **${overall.covered} (${overall.percent}%)** |`,
+    "",
+    `**Reach: ${reachable.percent}%** of the ${reachable.pairs} command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because \`-target\` exposed on \`build\` and missing from \`settings\` is not covered for anyone asking \`settings\`. ${reachable.missing} pairs are open.`,
     "",
     `${options.exposed} options map to an \`xcodebuild-axi\` flag. The other ${options.always + options.superseded} are reachable without one:`,
     "",
@@ -104,20 +196,35 @@ function renderSection(): string {
     "| --- | --- |",
     ...rows("always"),
     ...rows("superseded"),
-    ...(uncovered.length > 0
-      ? [
-          "",
-          `The remaining ${options.na} are deliberately not wrapped:`,
-          "",
-          "| Option | Why not |",
-          "| --- | --- |",
-          ...uncovered,
-        ]
-      : []),
     ...(actionGaps.length > 0
       ? [
           "",
           `The one action left out is ${actionGaps.join(", ")} — it copies sources into \`SRCROOT\` as root, which is a packaging step rather than anything an agent loop needs.`,
+        ]
+      : []),
+    "",
+    "### Companion tools",
+    "",
+    `\`xcresulttool\`, \`xccov\` and \`simctl\` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **${companions.percent}% of ${companions.total} leaves**, counted the same way:`,
+    "",
+    "| Tool | Leaves | Covered |",
+    "| --- | --- | --- |",
+    ...surfaceRows(
+      Object.entries(COMPANION_SURFACES).map(([name, map]) => ({
+        name: `\`${name}\``,
+        map,
+      })),
+    ),
+    ...(open.length > 0
+      ? [
+          "",
+          "### Still open",
+          "",
+          `${open.length} leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:`,
+          "",
+          "| Leaf | Unreachable from | What that costs |",
+          "| --- | --- | --- |",
+          ...open,
         ]
       : []),
     "",
@@ -147,10 +254,12 @@ function classificationDrift(live: string[]): string[] {
 }
 
 function renderBadge(): string {
-  const { percent } = tally(OPTION_COVERAGE);
+  const { percent: covered } = totals(
+    XCODEBUILD_SURFACES.map((surface) => surface.map),
+  );
   const color =
-    percent >= 90 ? "brightgreen" : percent >= 75 ? "yellow" : "orange";
-  return `${BADGE_START}<img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-${percent}%25-${color}?style=flat-square" />${BADGE_END}`;
+    covered >= 90 ? "brightgreen" : covered >= 75 ? "yellow" : "orange";
+  return `${BADGE_START}<img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-${covered}%25-${color}?style=flat-square" />${BADGE_END}`;
 }
 
 /** Swap the text between a marker pair, leaving the markers in place. */
@@ -222,6 +331,17 @@ if (live === undefined) {
   }
 }
 
+const summary = () => {
+  const overall = totals(XCODEBUILD_SURFACES.map((surface) => surface.map));
+  const reachable = reach(OPTION_COVERAGE);
+  const companions = totals(Object.values(COMPANION_SURFACES));
+  return [
+    `xcodebuild ${overall.percent}% (${overall.covered}/${overall.total} leaves)`,
+    `reach ${reachable.percent}% (${reachable.reached}/${reachable.pairs} pairs)`,
+    `companions ${companions.percent}% (${companions.covered}/${companions.total})`,
+  ].join(", ");
+};
+
 if (check) {
   if (updated !== readme) {
     console.error(
@@ -229,14 +349,8 @@ if (check) {
     );
     process.exit(1);
   }
-  const options = tally(OPTION_COVERAGE);
-  console.log(
-    `coverage ${options.percent}% (${options.covered}/${options.total}) up to date`,
-  );
+  console.log(`${summary()} — up to date`);
 } else {
   writeFileSync(readmePath, updated);
-  const options = tally(OPTION_COVERAGE);
-  console.log(
-    `README.md updated: ${options.percent}% (${options.covered}/${options.total})`,
-  );
+  console.log(`README.md updated: ${summary()}`);
 }

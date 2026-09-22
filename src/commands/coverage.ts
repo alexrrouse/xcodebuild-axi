@@ -33,11 +33,16 @@ examples:
   xcodebuild-axi coverage build/MyApp.xcresult --files --below 50
 `;
 
-const FLAGS = ["--files", "--target", "--below", "--max"] as const;
+export const COVERAGE_FLAGS = [
+  "--files",
+  "--target",
+  "--below",
+  "--max",
+] as const;
 const VALUE_FLAGS = ["--target", "--below", "--max"] as const;
 
 export async function coverageCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "coverage", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "coverage", COVERAGE_FLAGS, VALUE_FLAGS);
 
   const [rawPath] = positionals(args, VALUE_FLAGS);
   if (rawPath === undefined) {
