@@ -8,6 +8,37 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- **`sim` sets up the state a UI test needs.** `privacy`, `push`,
+  `status-bar` and `ui` — the last four simctl subcommands worth wrapping.
+
+  `sim privacy "iPhone 17 Pro" grant photos` answers a permission prompt
+  before it appears, which is the difference between a UI test that runs
+  unattended and one that waits for a tap. The bundle id is optional here too,
+  and `reset` is the one action that takes no app at all.
+
+  `sim push "iPhone 17 Pro" --message "Your order shipped"` writes the `aps`
+  dictionary simctl demands and sends it, rather than making the caller keep a
+  JSON file around for one line of text. A payload path still works, in either
+  order with the bundle id. simctl delivers a push addressed to an app that is
+  not installed and exits 0 — indistinguishable from a notification the app
+  ignored — so the app is checked first and the silence becomes a sentence.
+
+  `sim status-bar "iPhone 17 Pro" pin` freezes the clock at 9:41 with full
+  signal and a full battery, so two screenshots differ only where the app
+  does; `--time`, `--battery` and `--bars` override one piece at a time, and
+  `clear` hands the status bar back. Read back, simctl reports its overrides
+  as enum ordinals (`Battery State: 2`) and prints the words only inside its
+  own `--help`; every value was checked against what it accepts, so the
+  report reads in the same vocabulary the flags are written in.
+
+  `sim ui "iPhone 17 Pro"` reports appearance, contrast and content size
+  together, and `sim ui "iPhone 17 Pro" dark` is shorthand for setting the
+  one of the three anyone asks for.
+
+  That closes the coverage map: every leaf of xcodebuild, `xcresulttool`,
+  `xccov` and `simctl` is now either reached by a command or declined on the
+  record, with nothing left marked missing.
+
 - **`sim` can run the app a build just produced.** Five simctl subcommands:
   `sim apps`, `install`, `launch`, `terminate` and `uninstall`.
 

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { AxiError } from "../errors.js";
 import { resolveProject } from "../context.js";
@@ -36,7 +36,7 @@ import {
 
 export const SIM_HELP = `usage: xcodebuild-axi sim [subcommand] [name|udid] [app] [flags]
 Inspects and drives simulators. With no subcommand, lists the booted ones.
-subcommands[14]:
+subcommands[18]:
   list                 every available simulator
   boot <name|udid>     boot one, or no-op if it is already booted
   shutdown <name|udid> shut one down, or no-op if it already is; --all for every booted one
@@ -52,7 +52,14 @@ subcommands[14]:
   screenshot <name|udid> [path]    save a PNG of its screen
   video <name|udid> [path]         record its screen; --seconds sets how long
   open <name|udid> <url>           open a URL on it, deep links included
-flags[9]:
+  privacy <name|udid> <grant|revoke|reset> <service> [bundle-id]
+                       answer a permission prompt before it appears
+  push <name|udid> [bundle-id] [payload.json]
+                       send a push; --message writes the payload for you
+  status-bar <name|udid> [pin|clear]  freeze the status bar for a screenshot
+  ui <name|udid> [light|dark|<setting> <value>]  read or set appearance,
+                       contrast and content size
+flags[14]:
   --runtime <name>     filter the list, e.g. "iOS 26.5"
   --booted             list only booted simulators
   --all                apply shutdown or erase to every eligible simulator
@@ -62,6 +69,11 @@ flags[9]:
   --unavailable        with delete: every device whose runtime is gone
   --seconds <n>        with video: how long to record (default: 10)
   --yes                required to delete every simulator at once
+  --message <text>     with push: the alert body to send
+  --title <text>       with push: the alert title
+  --time <string>      with status-bar: the clock, e.g. "9:41"
+  --battery <0-100>    with status-bar: the battery level
+  --bars <0-4>         with status-bar: wifi and cellular signal strength
 note:
   install, launch, terminate and uninstall take the app as a path or a bundle
   id, and work it out from the project in the current directory when it is
@@ -77,6 +89,9 @@ examples:
   xcodebuild-axi sim screenshot "iPhone 17 Pro"
   xcodebuild-axi sim create "Test iPhone" "iPhone 17 Pro" --runtime "iOS 26.5"
   xcodebuild-axi sim open "iPhone 17 Pro" myapp://checkout
+  xcodebuild-axi sim privacy "iPhone 17 Pro" grant photos
+  xcodebuild-axi sim status-bar "iPhone 17 Pro" pin
+  xcodebuild-axi sim ui "iPhone 17 Pro" dark
 `;
 
 export const SIM_FLAGS = [
@@ -89,13 +104,27 @@ export const SIM_FLAGS = [
   "--unavailable",
   "--seconds",
   "--yes",
+  "--message",
+  "--title",
+  "--time",
+  "--battery",
+  "--bars",
 ] as const;
-const VALUE_FLAGS = ["--runtime", "--scheme", "--seconds"] as const;
+const VALUE_FLAGS = [
+  "--runtime",
+  "--scheme",
+  "--seconds",
+  "--message",
+  "--title",
+  "--time",
+  "--battery",
+  "--bars",
+] as const;
 
 export async function simCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "sim", SIM_FLAGS, VALUE_FLAGS);
 
-  const [subcommand, target, app] = positionals(args, VALUE_FLAGS);
+  const [subcommand, target, app, extra] = positionals(args, VALUE_FLAGS);
 
   switch (subcommand ?? "booted") {
     case "booted":
@@ -128,12 +157,20 @@ export async function simCommand(args: string[]): Promise<string> {
       return video(args, target, app);
     case "open":
       return openUrl(target, app);
+    case "privacy":
+      return privacy(args, target, app, extra);
+    case "push":
+      return push(args, target, app, extra);
+    case "status-bar":
+      return statusBar(args, target, app);
+    case "ui":
+      return ui(target, app, extra);
     default:
       throw new AxiError(
         `Unknown sim subcommand '${subcommand}'`,
         "VALIDATION_ERROR",
         [
-          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open",
+          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui",
         ],
       );
   }
@@ -767,6 +804,489 @@ async function openUrl(
     ]);
   }
   return renderFields({ opened: url, sim: simulator.name });
+}
+
+/** The services simctl will grant, revoke or reset. */
+const PRIVACY_SERVICES = [
+  "all",
+  "calendar",
+  "contacts-limited",
+  "contacts",
+  "location",
+  "location-always",
+  "photos-add",
+  "photos",
+  "media-library",
+  "microphone",
+  "motion",
+  "reminders",
+  "siri",
+] as const;
+
+const PRIVACY_ACTIONS = ["grant", "revoke", "reset"] as const;
+
+/**
+ * Permissions, granted ahead of a UI test rather than tapped through.
+ *
+ * The bundle id is optional for the same reason it is on `launch`: the
+ * project in the current directory already knows it, and a permission grant
+ * for the wrong app looks exactly like a test that still fails.
+ */
+async function privacy(
+  args: string[],
+  target: string | undefined,
+  action: string | undefined,
+  service: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "privacy");
+
+  if (
+    action === undefined ||
+    !PRIVACY_ACTIONS.includes(action as (typeof PRIVACY_ACTIONS)[number])
+  ) {
+    throw new AxiError(
+      action === undefined
+        ? "sim privacy needs an action"
+        : `'${action}' is not something that can be done to a permission`,
+      "VALIDATION_ERROR",
+      [`actions: ${PRIVACY_ACTIONS.join(", ")}`],
+    );
+  }
+  if (
+    service === undefined ||
+    !PRIVACY_SERVICES.includes(service as (typeof PRIVACY_SERVICES)[number])
+  ) {
+    throw new AxiError(
+      service === undefined
+        ? "sim privacy needs a service"
+        : `simctl has no permission called '${service}'`,
+      "VALIDATION_ERROR",
+      [`services: ${PRIVACY_SERVICES.join(", ")}`],
+    );
+  }
+
+  // `reset` is the one action simctl takes without an app, and resetting
+  // every app's permissions is a different thing from resetting one app's.
+  const bundleId =
+    positionals(args, VALUE_FLAGS)[4] ??
+    (action === "reset"
+      ? undefined
+      : (await productOf(args, simulator, "privacy")).bundleId);
+
+  const { exitCode, stderr } = await simctl([
+    "privacy",
+    simulator.udid,
+    action,
+    service,
+    ...(bundleId ? [bundleId] : []),
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `Could not ${action} ${service} on ${simulator.name}`,
+      "UNKNOWN",
+      [firstLine(stderr)],
+    );
+  }
+
+  const past = { grant: "granted", revoke: "revoked", reset: "reset" };
+  return renderFields({
+    privacy: `${service} ${past[action as keyof typeof past]}`,
+    ...(bundleId ? { app: bundleId } : { apps: "all" }),
+    sim: simulator.name,
+  });
+}
+
+/**
+ * A push notification, without hand-writing an APNs payload.
+ *
+ * simctl takes a JSON file holding a valid `aps` dictionary, which is three
+ * lines of boilerplate around the one line anyone is testing. `--message`
+ * writes that file; a payload path is still accepted for the cases that need
+ * the real thing.
+ */
+async function push(
+  args: string[],
+  target: string | undefined,
+  first: string | undefined,
+  second: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "push");
+  const message = getFlag(args, "--message");
+  const title = getFlag(args, "--title");
+
+  // `sim push <device> [bundle-id] [payload.json]`, in either order: one of
+  // the two has a path in it and the other does not, so there is nothing to
+  // ask the caller to remember.
+  const given = [first, second].filter((v): v is string => v !== undefined);
+  const payload = given.find(isPayloadPath);
+  const named = given.find((value) => value !== payload);
+
+  if (payload === undefined && message === undefined) {
+    throw new AxiError("sim push needs something to send", "VALIDATION_ERROR", [
+      `xcodebuild-axi sim push "${simulator.name}" --message "Your order shipped"`,
+      `xcodebuild-axi sim push "${simulator.name}" payload.json`,
+    ]);
+  }
+  if (payload !== undefined && message !== undefined) {
+    throw new AxiError(
+      "A payload file and --message are two different notifications",
+      "VALIDATION_ERROR",
+      ["Drop one — a payload file already carries its own alert text"],
+    );
+  }
+
+  const bundleId = named ?? (await productOf(args, simulator, "push")).bundleId;
+  const file = payload
+    ? resolve(payload)
+    : writePayload(simulator.name, title, message ?? "");
+
+  if (!existsSync(file)) {
+    throw new AxiError(`No payload at ${tildePath(file)}`, "NOT_FOUND", [
+      "A push payload is a JSON file with an `aps` dictionary in it",
+    ]);
+  }
+
+  // simctl will happily deliver a push addressed to an app that is not
+  // installed and exit 0, which looks exactly like a notification the app
+  // ignored. Checking first turns that silence into a sentence.
+  const installed = await listApps(simulator.udid);
+  if (!installed.some((entry) => entry.bundleId === bundleId)) {
+    throw new AxiError(
+      `'${bundleId}' is not installed on ${simulator.name}`,
+      "NOT_FOUND",
+      [
+        `Run \`xcodebuild-axi sim install "${simulator.name}"\` first`,
+        `Run \`xcodebuild-axi sim apps "${simulator.name}"\` to see what is installed`,
+      ],
+    );
+  }
+
+  const { exitCode, stderr } = await simctl([
+    "push",
+    simulator.udid,
+    bundleId,
+    file,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not send the push to '${bundleId}'`, "UNKNOWN", [
+      firstLine(stderr),
+      "A payload has to parse as JSON, carry an `aps` dictionary, and stay under 4096 bytes",
+    ]);
+  }
+
+  return renderFields({
+    pushed: bundleId,
+    sim: simulator.name,
+    ...(message ? { message } : { payload: tildePath(file) }),
+  });
+}
+
+/** A payload is the argument with a path in it; a bundle id is the other one. */
+export function isPayloadPath(value: string): boolean {
+  return value.includes("/") || value.toLowerCase().endsWith(".json");
+}
+
+function writePayload(
+  device: string,
+  title: string | undefined,
+  body: string,
+): string {
+  const file = capturePath(device, "json");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    JSON.stringify(
+      { aps: { alert: title ? { title, body } : body, sound: "default" } },
+      null,
+      2,
+    ),
+  );
+  return file;
+}
+
+/**
+ * `sim ui <device> dark` rather than `sim ui <device> appearance dark`: the
+ * setting is unambiguous from the value, and the short form is the one anyone
+ * types. Everything else names the setting first, the way simctl does.
+ */
+export function uiSetting(
+  setting: string,
+  value: string | undefined,
+): [string, string | undefined] {
+  if (setting === "light" || setting === "dark") return ["appearance", setting];
+
+  const option = UI_SETTINGS[setting];
+  if (option === undefined) {
+    throw new AxiError(
+      `simctl has no ui setting called '${setting}'`,
+      "VALIDATION_ERROR",
+      [
+        "settings: appearance, contrast, size",
+        "`xcodebuild-axi sim ui <name|udid> dark` is shorthand for appearance",
+      ],
+    );
+  }
+  return [option, value];
+}
+
+/** The screenshot-test status bar: 9:41, full bars, full battery. */
+const PINNED_STATUS_BAR = [
+  "--time",
+  "9:41",
+  "--dataNetwork",
+  "wifi",
+  "--wifiMode",
+  "active",
+  "--wifiBars",
+  "3",
+  "--cellularMode",
+  "active",
+  "--cellularBars",
+  "4",
+  "--batteryState",
+  "charged",
+  "--batteryLevel",
+  "100",
+];
+
+/**
+ * A status bar that does not change between runs, which is what makes two
+ * screenshots comparable. `pin` is the set everyone means: 9:41 and
+ * everything full, the way Apple's own marketing shots are.
+ */
+async function statusBar(
+  args: string[],
+  target: string | undefined,
+  action: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "status-bar");
+  const overrides = statusOverrides(args);
+
+  if (action === "clear") {
+    const { exitCode, stderr } = await simctl([
+      "status_bar",
+      simulator.udid,
+      "clear",
+    ]);
+    if (exitCode !== 0) {
+      throw new AxiError("Could not clear the status bar", "UNKNOWN", [
+        firstLine(stderr),
+      ]);
+    }
+    return renderFields({ status_bar: "cleared", sim: simulator.name });
+  }
+
+  if (action === undefined && overrides.length === 0) {
+    const { stdout } = await simctl(["status_bar", simulator.udid, "list"]);
+    const set = statusRows(stdout);
+    const count = Object.keys(set).length;
+    return renderOutput([
+      renderFields({
+        status_bar: count > 0 ? `${count} overrides` : "not overridden",
+        sim: simulator.name,
+        ...set,
+      }),
+      renderHelp([
+        count > 0
+          ? `Run \`xcodebuild-axi sim status-bar "${simulator.name}" clear\` to hand the status bar back to the simulator`
+          : `Run \`xcodebuild-axi sim status-bar "${simulator.name}" pin\` to freeze it for a screenshot`,
+      ]),
+    ]);
+  }
+
+  if (action !== undefined && action !== "pin") {
+    throw new AxiError(
+      `'${action}' is not something sim status-bar does`,
+      "VALIDATION_ERROR",
+      ["pin freezes it, clear undoes that, and no argument reports it"],
+    );
+  }
+
+  const applied =
+    action === "pin" ? [...PINNED_STATUS_BAR, ...overrides] : overrides;
+  const { exitCode, stderr } = await simctl([
+    "status_bar",
+    simulator.udid,
+    "override",
+    ...applied,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError("Could not override the status bar", "UNKNOWN", [
+      firstLine(stderr),
+    ]);
+  }
+
+  return renderOutput([
+    renderFields({
+      status_bar: action === "pin" ? "pinned" : "overridden",
+      sim: simulator.name,
+    }),
+    renderHelp(
+      action === "pin"
+        ? [
+            "9:41 with full signal and a full battery, so two screenshots differ only where the app does",
+          ]
+        : [],
+    ),
+  ]);
+}
+
+/**
+ * simctl reports its overrides as integers — `Battery State: 2` — and prints
+ * the words only in its own `--help`. Verified against every value simctl
+ * accepts, so the report reads back in the vocabulary the flags are written
+ * in rather than in enum ordinals.
+ */
+const STATUS_WORDS: Record<string, Record<string, string>> = {
+  data_network: {
+    "0": "wifi",
+    "6": "3g",
+    "7": "4g",
+    "8": "lte",
+    "9": "lte-a",
+    "10": "lte+",
+    "11": "5g",
+    "12": "5g+",
+    "13": "5g-uwb",
+    "14": "5g-uc",
+  },
+  wifi_mode: {
+    "0": "not-supported",
+    "1": "searching",
+    "2": "failed",
+    "3": "active",
+  },
+  cell_mode: {
+    "0": "not-supported",
+    "1": "searching",
+    "2": "failed",
+    "3": "active",
+  },
+  battery_state: { "0": "discharging", "1": "charging", "2": "charged" },
+};
+
+/**
+ * simctl reports its overrides as prose — one line per group, several
+ * `Key: Value` pairs to a line. Flattening them into fields is what makes the
+ * answer readable next to the flags that set them.
+ */
+export function statusRows(stdout: string): Record<string, string | number> {
+  const rows: Record<string, string | number> = {};
+  for (const line of stdout.split("\n")) {
+    if (!line.includes(":") || line.trimStart().startsWith("Current")) continue;
+    for (const pair of line.split(",")) {
+      const [name, ...rest] = pair.split(":");
+      const value = rest.join(":").trim();
+      if (name === undefined || value === "") continue;
+      const key = name
+        .trim()
+        .replace(/([a-z])([A-Z])/g, "$1_$2")
+        .replace(/ /g, "_")
+        .toLowerCase()
+        .replace("wi_fi", "wifi")
+        .replace("data_network_type", "data_network");
+      const word = STATUS_WORDS[key]?.[value];
+      // Numbers stay numbers: TOON quotes a numeric-looking string, and the
+      // quotes cost more than the digits.
+      rows[key] = word ?? (/^\d+$/.test(value) ? Number(value) : value);
+    }
+  }
+  return rows;
+}
+
+/** The individual overrides, for the cases `pin` does not cover. */
+export function statusOverrides(args: string[]): string[] {
+  const time = getFlag(args, "--time");
+  const battery = getIntFlag(args, "--battery");
+  const bars = getIntFlag(args, "--bars");
+
+  if (battery !== undefined && (battery < 0 || battery > 100)) {
+    throw new AxiError(
+      "A battery level is a percentage from 0 to 100",
+      "VALIDATION_ERROR",
+      ["xcodebuild-axi sim status-bar <name|udid> --battery 100"],
+    );
+  }
+  if (bars !== undefined && (bars < 0 || bars > 4)) {
+    throw new AxiError(
+      "Signal strength runs from 0 to 4 bars",
+      "VALIDATION_ERROR",
+      [
+        "wifi tops out at 3 bars and cellular at 4, which is simctl's own range",
+      ],
+    );
+  }
+
+  return [
+    ...(time ? ["--time", time] : []),
+    ...(battery !== undefined
+      ? ["--batteryState", "charged", "--batteryLevel", String(battery)]
+      : []),
+    ...(bars !== undefined
+      ? [
+          "--wifiMode",
+          "active",
+          "--wifiBars",
+          String(Math.min(bars, 3)),
+          "--cellularMode",
+          "active",
+          "--cellularBars",
+          String(bars),
+        ]
+      : []),
+  ];
+}
+
+/** simctl's own names for the three settings `ui` reads and writes. */
+const UI_SETTINGS: Record<string, string> = {
+  appearance: "appearance",
+  contrast: "increase_contrast",
+  increase_contrast: "increase_contrast",
+  size: "content_size",
+  content_size: "content_size",
+};
+
+/**
+ * Appearance, contrast and content size — the three things a screenshot test
+ * varies. `sim ui <device> dark` is the shorthand for the one that is asked
+ * for ten times as often as the others.
+ */
+async function ui(
+  target: string | undefined,
+  setting: string | undefined,
+  value: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "ui");
+
+  if (setting === undefined) {
+    const read = async (option: string): Promise<string> =>
+      (await simctl(["ui", simulator.udid, option])).stdout.trim();
+    return renderFields({
+      sim: simulator.name,
+      appearance: await read("appearance"),
+      contrast: await read("increase_contrast"),
+      content_size: await read("content_size"),
+    });
+  }
+
+  const [option, wanted] = uiSetting(setting, value);
+
+  const { stdout, stderr, exitCode } = await simctl([
+    "ui",
+    simulator.udid,
+    option,
+    ...(wanted ? [wanted] : []),
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not set ${option}`, "VALIDATION_ERROR", [
+      firstLine(stderr),
+    ]);
+  }
+
+  return renderFields({
+    sim: simulator.name,
+    [option]: wanted ?? stdout.trim(),
+  });
 }
 
 function sizeOf(path: string): number {
