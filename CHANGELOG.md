@@ -8,6 +8,29 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- **`sim` seeds the fixtures a test needs and says where the app's files
+  went.** `location`, `media` and `container`.
+
+  `sim location "iPhone 17 Pro" 37.7749,-122.4194` puts the device somewhere;
+  two or more pairs move it between them (`--speed` sets how fast), a name
+  runs one of simctl's own scenarios, and no argument lists them — simctl
+  offers no way to read the current location back, so the list is the only
+  useful thing a bare call can say. A scenario name is matched
+  case-insensitively against that list, because simctl's own answer to a near
+  miss is "Could not find scenario".
+
+  `sim media "iPhone 17 Pro" receipt.png` adds photos, live photos, videos and
+  vCard contacts to the library. A file that is not there is refused before
+  simctl is called; a file it refuses comes back as
+  `receipt.heic — File type unsupported` rather than as the two-paragraph
+  "Multiple errors were returned; see stderr" simctl prints.
+
+  `sim container "iPhone 17 Pro"` answers where the app's files are with both
+  paths at once — the installed bundle and the data directory a test writes
+  into — because asking for one and then needing the other is two calls.
+  `groups` lists the App Group containers, and any `group.` identifier works
+  as well.
+
 - **`build --install-src` copies a project's sources out.** The last
   xcodebuild action left, which takes the headline number to **100% of the 161
   leaves `xcodebuild -help` documents**.

@@ -202,13 +202,13 @@ A leaf is one switch you could type. Counting options alone says 100% (117/117),
 
 ### Companion tools
 
-`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **62% of 71 leaves**, counted the same way:
+`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **66.2% of 71 leaves**, counted the same way:
 
 | Tool           | Leaves | Covered    |
 | -------------- | ------ | ---------- |
 | `xcresulttool` | 21     | 17 (81%)   |
 | `xccov`        | 9      | 9 (100%)   |
-| `simctl`       | 41     | 18 (43.9%) |
+| `simctl`       | 41     | 21 (51.2%) |
 
 The denominator is read from `xcodebuild -help` rather than hand-maintained, and this table is written against **Xcode 27.0** — the option list moves between releases. `npm run coverage:check` fails on that Xcode if an option here is unclassified or has been dropped, and reports the difference without failing on any other.
 
