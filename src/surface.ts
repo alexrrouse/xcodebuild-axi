@@ -577,11 +577,7 @@ export const XCRESULT_COVERAGE: Record<string, OptionCoverage> = {
     from: "result",
     why: "the full test tree of a finished run cannot be listed",
   },
-  "get test-results test-details": {
-    status: "missing",
-    from: "result",
-    why: "the only source of a per-failure file and line; without it a failing test reports a message and no location",
-  },
+  "get test-results test-details": only("result", "test"),
   "get test-results activities": {
     status: "missing",
     from: "result",

@@ -1,4 +1,9 @@
-import type { Diagnostic } from "./xcresult.js";
+import {
+  failureLocation,
+  readTestDetails,
+  type Diagnostic,
+  type TestFailure,
+} from "./xcresult.js";
 import { renderList, truncate } from "./toon.js";
 
 /**
@@ -45,4 +50,63 @@ export function transcriptTail(tail: string, lines = 15): string {
     .slice(-lines);
   if (kept.length === 0) return "";
   return `tail[${kept.length}]:\n${kept.map((line) => `  ${line}`).join("\n")}`;
+}
+
+// A type alias rather than an interface so it satisfies the
+// `Record<string, unknown>` that `renderList` takes; TypeScript infers an
+// index signature for the one and not the other.
+export type FailureRow = {
+  test: string;
+  target: string;
+  file?: string;
+  line?: number | "";
+  message: string;
+};
+
+/**
+ * The failure table both `test` and `result` print.
+ *
+ * A failing test's message says what went wrong; the file and line say where,
+ * and they cost one `test-details` read each because the summary does not
+ * carry them. Only the rows actually shown are looked up — a run with four
+ * hundred failures should not spend four hundred subprocesses to print twenty
+ * lines — and a lookup that fails leaves the location blank rather than
+ * failing the report, since a bundle from another Xcode may not answer at all.
+ */
+export async function failureRows(
+  resultPath: string,
+  failures: TestFailure[],
+  options: { max: number; full: boolean },
+): Promise<FailureRow[]> {
+  const shown = failures.slice(0, options.max);
+
+  const locations = await Promise.all(
+    shown.map(async (failure) => {
+      const identifier = failure.testIdentifierString;
+      if (!identifier) return { file: "", line: "" as number | "" };
+      return readTestDetails(resultPath, identifier)
+        .then(failureLocation)
+        .catch(() => ({ file: "", line: "" as number | "" }));
+    }),
+  );
+
+  // Two empty columns on every row is worse than no columns: TOON prints the
+  // header either way, and a bundle written by another Xcode may answer none
+  // of these lookups.
+  const located = locations.some((location) => location.file.length > 0);
+
+  return shown.map((failure, index) => {
+    const message = (failure.failureText ?? "").replace(/\s+/g, " ").trim();
+    return {
+      test: failure.testIdentifierString ?? failure.testName ?? "unknown",
+      target: failure.targetName ?? "",
+      ...(located
+        ? {
+            file: locations[index]?.file ?? "",
+            line: locations[index]?.line ?? "",
+          }
+        : {}),
+      message: options.full ? message : truncate(message, 300).text,
+    };
+  });
 }

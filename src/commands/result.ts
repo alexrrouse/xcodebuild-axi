@@ -7,7 +7,7 @@ import {
   toDiagnostics,
   type BuildResults,
 } from "../xcresult.js";
-import { diagnosticsBlock } from "../report.js";
+import { diagnosticsBlock, failureRows } from "../report.js";
 import {
   duration,
   renderFields,
@@ -15,7 +15,6 @@ import {
   renderList,
   renderOutput,
   tildePath,
-  truncate,
 } from "../toon.js";
 import {
   getIntFlag,
@@ -102,16 +101,7 @@ export async function resultCommand(args: string[]): Promise<string> {
 
     const failures = summary.testFailures ?? [];
     if (failures.length > 0) {
-      const shown = failures.slice(0, max).map((failure) => ({
-        test: failure.testIdentifierString ?? failure.testName ?? "unknown",
-        target: failure.targetName ?? "",
-        message: full
-          ? (failure.failureText ?? "").replace(/\s+/g, " ").trim()
-          : truncate(
-              (failure.failureText ?? "").replace(/\s+/g, " ").trim(),
-              300,
-            ).text,
-      }));
+      const shown = await failureRows(path, failures, { max, full });
       blocks.push(
         renderList(
           failures.length > shown.length

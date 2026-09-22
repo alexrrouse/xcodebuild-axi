@@ -15,7 +15,7 @@ import {
   type TestSummary,
 } from "../xcresult.js";
 import { readCoverage, percent } from "../xccov.js";
-import { diagnosticsBlock, transcriptTail } from "../report.js";
+import { diagnosticsBlock, failureRows, transcriptTail } from "../report.js";
 import type { BuildRun } from "../xcodebuild.js";
 import {
   duration,
@@ -24,7 +24,6 @@ import {
   renderList,
   renderOutput,
   tildePath,
-  truncate,
 } from "../toon.js";
 import {
   getFlag,
@@ -347,14 +346,10 @@ async function renderTestSummary(
 
   const failures = summary.testFailures ?? [];
   if (failures.length > 0) {
-    const shown = failures.slice(0, options.maxFailures).map((failure) => ({
-      test: failure.testIdentifierString ?? failure.testName ?? "unknown",
-      target: failure.targetName ?? "",
-      message: options.full
-        ? (failure.failureText ?? "").replace(/\s+/g, " ").trim()
-        : truncate((failure.failureText ?? "").replace(/\s+/g, " ").trim(), 300)
-            .text,
-    }));
+    const shown = await failureRows(run.resultPath, failures, {
+      max: options.maxFailures,
+      full: options.full,
+    });
     blocks.push(
       renderList(
         failures.length > shown.length
