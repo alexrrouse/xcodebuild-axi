@@ -4,6 +4,29 @@ Notable changes to `xcodebuild-axi`. Versions follow
 [semver](https://semver.org/); the format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **`result --export <what>` gets files out of a bundle**: `attachments`,
+  `diagnostics`, `metrics`, or `evaluations`. A UI test's screenshots, the
+  diagnostics report `test --diagnostics` collects, and the CSVs behind a
+  performance measurement were all in the bundle and reachable only by shelling
+  out to `xcresulttool`.
+
+  It writes under `~/Library/Caches/xcodebuild-axi/exports/` by default, or
+  wherever `--to` says — never into the working tree, so asking what is in a CI
+  artifact cannot dirty the checkout it sits in. `--test`, `--filter '*.png'`
+  and `--failures` narrow what comes out, and each is **refused** where it does
+  not apply rather than ignored: a diagnostics report covers the whole run, so
+  `--test` beside it would answer a different question than the one asked.
+
+  The report is what landed and where, with each exported file tied back to the
+  test that produced it — a screenshot's filename is a UUID, and the manifest
+  is the only thing that makes it findable. `xcresulttool` narrates an
+  attachment export with one "Skipped export for <test>: no matching
+  attachments" per test, which is dropped.
+
 ## [0.1.10] - 2026-09-21
 
 ### Added

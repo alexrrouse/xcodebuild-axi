@@ -78,6 +78,20 @@ export function duration(seconds: number): string {
   return `${minutes}m${rest.toString().padStart(2, "0")}s`;
 }
 
+/** A byte count, rendered the way a human skims it. */
+export function byteSize(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return "unknown";
+  if (count < 1024) return `${count}B`;
+  const units = ["KB", "MB", "GB"];
+  let value = count / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)}${units[unit]}`;
+}
+
 /** Relative age of a timestamp, for "when did this last run". */
 export function relativeTime(epochSeconds: number | undefined): string {
   if (epochSeconds === undefined || !Number.isFinite(epochSeconds))

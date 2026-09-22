@@ -363,6 +363,113 @@ export function readBuildResults(path: string): Promise<BuildResults> {
   return xcresulttool<BuildResults>(["get", "build-results"], path);
 }
 
+/** What an `xcresulttool export` can be asked for. */
+export const EXPORT_KINDS = [
+  "attachments",
+  "diagnostics",
+  "metrics",
+  "evaluations",
+] as const;
+
+export type ExportKind = (typeof EXPORT_KINDS)[number];
+
+export interface ExportRequest {
+  path: string;
+  kind: ExportKind;
+  outputPath: string;
+  /** Narrow to one test case or suite. Not accepted by `diagnostics`. */
+  testId?: string;
+  /** Glob against the attachment filename. `attachments` only. */
+  filter?: string;
+  /** Only what a failure produced. `attachments` and `evaluations` only. */
+  onlyFailures?: boolean;
+}
+
+/** One test's row in an exported `manifest.json`. */
+export interface ExportedAttachment {
+  exportedFileName?: string;
+  suggestedHumanReadableName?: string;
+  isAssociatedWithFailure?: boolean;
+}
+
+export interface AttachmentManifestEntry {
+  testIdentifier?: string;
+  attachments?: ExportedAttachment[];
+}
+
+export interface MetricsManifestEntry {
+  testIdentifier?: string;
+  metricsFiles?: string[];
+}
+
+/**
+ * Write part of a bundle out to a directory.
+ *
+ * Unlike every other read here this one produces files rather than JSON, and
+ * it narrates: exporting attachments from a 40-test run prints "Skipped export
+ * for <test>: no matching attachments" once per test, which is the answer
+ * nobody asked for repeated forty times. The prose is dropped and the caller
+ * reports what actually landed on disk instead.
+ */
+export function exportBundle(request: ExportRequest): Promise<void> {
+  if (!existsSync(request.path)) {
+    throw new AxiError(
+      `No result bundle at ${request.path}`,
+      "RESULT_NOT_FOUND",
+      [
+        "Run `xcodebuild-axi build` or `test` first — each prints the bundle path it wrote",
+      ],
+    );
+  }
+
+  const args = [
+    "xcresulttool",
+    "export",
+    request.kind,
+    "--path",
+    request.path,
+    "--output-path",
+    request.outputPath,
+    ...(request.testId ? ["--test-id", request.testId] : []),
+    ...(request.filter ? ["--filter", request.filter] : []),
+    ...(request.onlyFailures ? ["--only-failures"] : []),
+  ];
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "xcrun",
+      args,
+      { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolvePromise();
+          return;
+        }
+        // The refusal lands on either stream depending on the subcommand --
+        // a bad --test-id is printed on stdout and still exits 1.
+        rejectPromise(
+          new AxiError(
+            exportComplaint(`${stdout}\n${stderr}`) ??
+              `xcresulttool could not export ${request.kind} from ${request.path}`,
+            "RESULT_NOT_FOUND",
+            [
+              "Run `xcodebuild-axi result <path> --available` to see what this bundle holds",
+            ],
+          ),
+        );
+      },
+    );
+  });
+}
+
+function exportComplaint(output: string): string | undefined {
+  const reason = output
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("Error:"));
+  return reason?.replace(/^Error:\s*/, "");
+}
+
 /**
  * Pull `file`, `line` and `col` out of a diagnostic's sourceURL.
  *

@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { AxiError, xcodeNotInstalledError } from "./errors.js";
 import type { ProjectContext } from "./context.js";
 
@@ -181,6 +181,31 @@ export function artifactDir(project: ProjectContext): string {
     "Caches",
     "xcodebuild-axi",
     `${project.name}-${hash}`,
+  );
+}
+
+/**
+ * Where something exported out of a result bundle lands.
+ *
+ * Keyed on the bundle rather than on the project, because `result` takes an
+ * arbitrary path and may be pointed at a bundle from anywhere — including a
+ * CI artifact in a checked-out repository, which is exactly the tree that must
+ * not be dirtied by asking what is in it.
+ */
+export function exportDir(bundlePath: string, kind: string): string {
+  const hash = createHash("sha256")
+    .update(bundlePath)
+    .digest("hex")
+    .slice(0, 8);
+  const stem = basename(bundlePath).replace(/\.xcresult$/, "");
+  return join(
+    homedir(),
+    "Library",
+    "Caches",
+    "xcodebuild-axi",
+    "exports",
+    `${stem}-${hash}`,
+    kind,
   );
 }
 

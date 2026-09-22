@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildFields,
   flattenTests,
+  manifestRows,
   resultCommand,
 } from "../src/commands/result.js";
 
@@ -137,5 +141,112 @@ describe("result read modes", () => {
     await expect(
       resultCommand([bundle, "--log", "transcript"]),
     ).rejects.toThrow(/Unknown log type 'transcript'/);
+  });
+});
+
+// Each of these refusals is a narrowing that changes what comes out of the
+// bundle. Dropping one silently would answer a question nobody asked --
+// a diagnostics export that ignored --test would look like the per-test report
+// it is not.
+describe("result --export", () => {
+  const bundle = "/tmp/MyApps-1a2b3c4d/MyApp.xcresult";
+
+  it("names what can be exported", async () => {
+    await expect(
+      resultCommand([bundle, "--export", "screenshots"]),
+    ).rejects.toThrow(/Nothing named 'screenshots'/);
+  });
+
+  it("refuses --filter for an export with no filenames to match", async () => {
+    await expect(
+      resultCommand([bundle, "--export", "diagnostics", "--filter", "*.png"]),
+    ).rejects.toThrow(/--filter narrows attachments/);
+  });
+
+  it("refuses --test for a report that covers the whole run", async () => {
+    await expect(
+      resultCommand([
+        bundle,
+        "--export",
+        "diagnostics",
+        "--test",
+        "MyAppTests/CheckoutTests",
+      ]),
+    ).rejects.toThrow(/covers the whole run, not one test/);
+  });
+
+  it("refuses --failures where nothing is per-failure", async () => {
+    await expect(
+      resultCommand([bundle, "--export", "metrics", "--failures"]),
+    ).rejects.toThrow(/--failures narrows an export/);
+  });
+});
+
+describe("manifestRows", () => {
+  const created: string[] = [];
+  afterEach(() => {
+    for (const dir of created) rmSync(dir, { recursive: true, force: true });
+    created.length = 0;
+  });
+
+  function withManifest(contents: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "axi-export-"));
+    created.push(dir);
+    writeFileSync(join(dir, "manifest.json"), contents);
+    return dir;
+  }
+
+  // The exported filename is a UUID; the test it belongs to is the only thing
+  // that makes it findable, and it lives in the manifest rather than on disk.
+  it("ties each exported file back to the test that made it", () => {
+    const dir = withManifest(
+      JSON.stringify([
+        {
+          testIdentifier: "MyAppTests/CheckoutTests/testTotal",
+          attachments: [
+            {
+              exportedFileName: "1A2B3C4D.png",
+              suggestedHumanReadableName: "Checkout screen",
+              isAssociatedWithFailure: true,
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(manifestRows(dir, "attachments")).toEqual([
+      {
+        test: "MyAppTests/CheckoutTests/testTotal",
+        file: "1A2B3C4D.png",
+        name: "Checkout screen",
+        failure: true,
+      },
+    ]);
+  });
+
+  // A metrics manifest names files rather than attachments, and carries no
+  // failure column -- a measurement is not associated with one.
+  it("reads a metrics manifest, which has a different shape", () => {
+    const dir = withManifest(
+      JSON.stringify([
+        {
+          testIdentifier: "MyAppTests/CheckoutTests/testScrolling",
+          metricsFiles: ["clock-time.csv", "memory.csv"],
+        },
+      ]),
+    );
+
+    expect(manifestRows(dir, "metrics")).toEqual([
+      {
+        test: "MyAppTests/CheckoutTests/testScrolling",
+        file: "clock-time.csv",
+      },
+      { test: "MyAppTests/CheckoutTests/testScrolling", file: "memory.csv" },
+    ]);
+  });
+
+  it("says nothing rather than throwing on a manifest it cannot read", () => {
+    expect(manifestRows(withManifest("not json"), "attachments")).toEqual([]);
+    expect(manifestRows("/tmp/does-not-exist-axi", "attachments")).toEqual([]);
   });
 });
