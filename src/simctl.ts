@@ -220,3 +220,53 @@ function plistToJson(text: string): Promise<Record<string, RawApp>> {
     );
   });
 }
+
+/** A device model a simulator can be created as. */
+export interface DeviceType {
+  identifier: string;
+  name: string;
+  family: string;
+  minRuntime: string;
+}
+
+interface RawDeviceType {
+  identifier?: string;
+  name?: string;
+  productFamily?: string;
+  minRuntimeVersionString?: string;
+}
+
+/** Every model `sim create` will accept, which is 129 of them on Xcode 27. */
+export async function listDeviceTypes(): Promise<DeviceType[]> {
+  const { stdout } = await simctl(["list", "-j", "devicetypes"]);
+  let parsed: { devicetypes?: RawDeviceType[] };
+  try {
+    parsed = JSON.parse(stdout) as { devicetypes?: RawDeviceType[] };
+  } catch {
+    throw new AxiError(
+      "simctl returned output that could not be read",
+      "UNKNOWN",
+    );
+  }
+  return (parsed.devicetypes ?? [])
+    .filter((type) => type.identifier && type.name)
+    .map((type) => ({
+      identifier: type.identifier ?? "",
+      name: type.name ?? "",
+      family: type.productFamily ?? "",
+      minRuntime: type.minRuntimeVersionString ?? "",
+    }));
+}
+
+/** Match a model by name or identifier, the way `findSimulator` matches one. */
+export function findDeviceType(
+  types: DeviceType[],
+  query: string,
+): DeviceType | undefined {
+  const wanted = query.toLowerCase();
+  return (
+    types.find((type) => type.identifier.toLowerCase() === wanted) ??
+    types.find((type) => type.name.toLowerCase() === wanted) ??
+    types.find((type) => type.name.toLowerCase().includes(wanted))
+  );
+}

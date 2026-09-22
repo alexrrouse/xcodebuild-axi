@@ -1,30 +1,42 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { AxiError } from "../errors.js";
 import { resolveProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
-import { runMetadata } from "../xcodebuild.js";
+import { capturePath, runMetadata } from "../xcodebuild.js";
 import { parseSettings } from "./settings.js";
 import {
+  findDeviceType,
   findSimulator,
   listApps,
+  listDeviceTypes,
   listSimulators,
   simctl,
+  type DeviceType,
   type InstalledApp,
   type Simulator,
 } from "../simctl.js";
 import {
+  byteSize,
+  duration,
   renderFields,
   renderHelp,
   renderList,
   renderOutput,
   tildePath,
 } from "../toon.js";
-import { getFlag, hasFlag, positionals, rejectUnknownFlags } from "../args.js";
+import {
+  getFlag,
+  getIntFlag,
+  hasFlag,
+  positionals,
+  rejectUnknownFlags,
+} from "../args.js";
 
 export const SIM_HELP = `usage: xcodebuild-axi sim [subcommand] [name|udid] [app] [flags]
 Inspects and drives simulators. With no subcommand, lists the booted ones.
-subcommands[9]:
+subcommands[14]:
   list                 every available simulator
   boot <name|udid>     boot one, or no-op if it is already booted
   shutdown <name|udid> shut one down, or no-op if it already is; --all for every booted one
@@ -35,13 +47,21 @@ subcommands[9]:
   launch <name|udid> [bundle-id]   launch it; without an id, this project's
   terminate <name|udid> [bundle-id] stop it, or no-op if it is not running
   uninstall <name|udid> [bundle-id] remove it
-flags[6]:
+  create <name> <model>  create a device; --runtime picks the OS
+  delete <name|udid>   delete one; --unavailable for every orphaned device
+  screenshot <name|udid> [path]    save a PNG of its screen
+  video <name|udid> [path]         record its screen; --seconds sets how long
+  open <name|udid> <url>           open a URL on it, deep links included
+flags[9]:
   --runtime <name>     filter the list, e.g. "iOS 26.5"
   --booted             list only booted simulators
   --all                apply shutdown or erase to every eligible simulator
   --system             include Apple's own apps in \`apps\`
   --scheme <name>      which scheme's app to install or launch
   --relaunch           with launch: stop a running copy first
+  --unavailable        with delete: every device whose runtime is gone
+  --seconds <n>        with video: how long to record (default: 10)
+  --yes                required to delete every simulator at once
 note:
   install, launch, terminate and uninstall take the app as a path or a bundle
   id, and work it out from the project in the current directory when it is
@@ -54,6 +74,9 @@ examples:
   xcodebuild-axi sim install "iPhone 17 Pro"
   xcodebuild-axi sim launch "iPhone 17 Pro" --relaunch
   xcodebuild-axi sim apps "iPhone 17 Pro"
+  xcodebuild-axi sim screenshot "iPhone 17 Pro"
+  xcodebuild-axi sim create "Test iPhone" "iPhone 17 Pro" --runtime "iOS 26.5"
+  xcodebuild-axi sim open "iPhone 17 Pro" myapp://checkout
 `;
 
 export const SIM_FLAGS = [
@@ -63,8 +86,11 @@ export const SIM_FLAGS = [
   "--system",
   "--scheme",
   "--relaunch",
+  "--unavailable",
+  "--seconds",
+  "--yes",
 ] as const;
-const VALUE_FLAGS = ["--runtime", "--scheme"] as const;
+const VALUE_FLAGS = ["--runtime", "--scheme", "--seconds"] as const;
 
 export async function simCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "sim", SIM_FLAGS, VALUE_FLAGS);
@@ -92,12 +118,22 @@ export async function simCommand(args: string[]): Promise<string> {
       return terminate(args, target, app);
     case "uninstall":
       return uninstall(args, target, app);
+    case "create":
+      return create(args, target, app);
+    case "delete":
+      return remove(args, target);
+    case "screenshot":
+      return screenshot(target, app);
+    case "video":
+      return video(args, target, app);
+    case "open":
+      return openUrl(target, app);
     default:
       throw new AxiError(
         `Unknown sim subcommand '${subcommand}'`,
         "VALIDATION_ERROR",
         [
-          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall",
+          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open",
         ],
       );
   }
@@ -488,6 +524,257 @@ async function uninstall(
     ]);
   }
   return renderFields({ uninstalled: bundleId, sim: simulator.name });
+}
+
+/**
+ * A new device.
+ *
+ * The model is matched by name rather than by the
+ * `com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro` identifier simctl
+ * documents, because the name is what `sim list` prints and what anyone
+ * actually knows.
+ */
+async function create(
+  args: string[],
+  name: string | undefined,
+  model: string | undefined,
+): Promise<string> {
+  if (name === undefined || model === undefined) {
+    throw new AxiError(
+      "sim create needs a name and a model",
+      "VALIDATION_ERROR",
+      [
+        'xcodebuild-axi sim create "Test iPhone" "iPhone 17 Pro"',
+        "Run `xcodebuild-axi sim list` to see the models already created",
+      ],
+    );
+  }
+
+  const types = await listDeviceTypes();
+  const type = findDeviceType(types, model);
+  if (!type) {
+    throw new AxiError(`No simulator model named '${model}'`, "NOT_FOUND", [
+      `models: ${nearbyModels(types, model).join(", ")}`,
+    ]);
+  }
+
+  const runtime = getFlag(args, "--runtime");
+  const { stdout, stderr, exitCode } = await simctl([
+    "create",
+    name,
+    type.identifier,
+    ...(runtime ? [runtime] : []),
+  ]);
+
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not create '${name}'`, "UNKNOWN", [
+      firstLine(stderr),
+      ...(runtime
+        ? ["Run `xcodebuild-axi platforms` to see the runtimes installed"]
+        : []),
+    ]);
+  }
+
+  const udid = stdout.trim();
+  return renderOutput([
+    renderFields({ created: name, model: type.name, udid }),
+    renderHelp([`Run \`xcodebuild-axi sim boot "${name}"\` to start it`]),
+  ]);
+}
+
+/** The models closest to what was asked for, for a refusal worth reading. */
+function nearbyModels(types: DeviceType[], query: string): string[] {
+  const wanted = query.toLowerCase().split(/\s+/)[0] ?? "";
+  const near = types.filter((type) => type.name.toLowerCase().includes(wanted));
+  return (near.length > 0 ? near : types).slice(0, 12).map((type) => type.name);
+}
+
+/**
+ * Deleting is the one simulator operation that cannot be undone -- a device
+ * is gigabytes of state, and recreating it is not the same device. So the
+ * blanket form needs `--yes` on top of `--all`, the way `migrate` does.
+ */
+async function remove(
+  args: string[],
+  target: string | undefined,
+): Promise<string> {
+  if (hasFlag(args, "--unavailable")) {
+    const { exitCode, stderr } = await simctl(["delete", "unavailable"]);
+    if (exitCode !== 0) {
+      throw new AxiError("Could not delete unavailable devices", "UNKNOWN", [
+        firstLine(stderr),
+      ]);
+    }
+    return renderFields({
+      sim: "every device whose runtime is gone has been deleted",
+    });
+  }
+
+  if (hasFlag(args, "--all")) {
+    // Refused before anything is looked up, let alone deleted: a refusal that
+    // first spends a subprocess counting what it is about to refuse to touch
+    // is slower than the answer and no more useful.
+    if (!hasFlag(args, "--yes")) {
+      throw new AxiError(
+        "--all deletes every simulator on this machine, which cannot be undone",
+        "VALIDATION_ERROR",
+        [
+          "Pass --yes as well if that is what you meant",
+          "`xcodebuild-axi sim delete --unavailable` removes only the orphaned ones",
+        ],
+      );
+    }
+    const all = await listSimulators();
+    const { exitCode, stderr } = await simctl(["delete", "all"]);
+    if (exitCode !== 0) {
+      throw new AxiError("Could not delete the simulators", "UNKNOWN", [
+        firstLine(stderr),
+      ]);
+    }
+    return renderFields({ deleted: all.length });
+  }
+
+  const simulator = await resolveTarget(target, "delete");
+  const { exitCode, stderr } = await simctl(["delete", simulator.udid]);
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not delete ${simulator.name}`, "UNKNOWN", [
+      firstLine(stderr),
+    ]);
+  }
+  return renderFields({ deleted: simulator.name, udid: simulator.udid });
+}
+
+/** A PNG of what the screen looks like right now. */
+async function screenshot(
+  target: string | undefined,
+  path: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "screenshot");
+  const file = path ? resolve(path) : capturePath(simulator.name, "png");
+  mkdirSync(dirname(file), { recursive: true });
+
+  const { exitCode, stderr } = await simctl([
+    "io",
+    simulator.udid,
+    "screenshot",
+    file,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not photograph ${simulator.name}`, "UNKNOWN", [
+      firstLine(stderr),
+    ]);
+  }
+
+  return renderFields({
+    screenshot: tildePath(file),
+    sim: simulator.name,
+    size: byteSize(sizeOf(file)),
+  });
+}
+
+/**
+ * A recording of the screen, for a fixed length.
+ *
+ * `simctl io recordVideo` records until it is sent SIGINT, which is a
+ * contract for a person at a terminal rather than for a caller: an agent has
+ * no way to press Control-C halfway through its own subprocess. So the
+ * duration is a flag, and the interrupt is this command's job.
+ */
+async function video(
+  args: string[],
+  target: string | undefined,
+  path: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "video");
+  const seconds = getIntFlag(args, "--seconds") ?? 10;
+  if (seconds <= 0) {
+    throw new AxiError(
+      "--seconds has to be a positive number of seconds",
+      "VALIDATION_ERROR",
+      ["xcodebuild-axi sim video <name|udid> --seconds 10"],
+    );
+  }
+
+  const file = path ? resolve(path) : capturePath(simulator.name, "mov");
+  mkdirSync(dirname(file), { recursive: true });
+
+  const recorded = await record(simulator.udid, file, seconds);
+  if (!recorded) {
+    throw new AxiError(`Could not record ${simulator.name}`, "UNKNOWN", [
+      "Check that the simulator window is not minimized or asleep",
+    ]);
+  }
+
+  return renderFields({
+    video: tildePath(file),
+    sim: simulator.name,
+    duration: duration(seconds),
+    size: byteSize(sizeOf(file)),
+  });
+}
+
+function record(udid: string, file: string, seconds: number): Promise<boolean> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(
+      "xcrun",
+      ["simctl", "io", udid, "recordVideo", "--force", file],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+
+    // simctl writes "Recording started" once the first frame is in, so the
+    // clock starts there rather than at spawn -- otherwise a slow start eats
+    // the seconds that were asked for.
+    let started = false;
+    const stop = (): void => {
+      child.kill("SIGINT");
+    };
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (started || !/Recording started/i.test(chunk.toString())) return;
+      started = true;
+      setTimeout(stop, seconds * 1000);
+    });
+
+    // A recording that never starts still has to end, so the wait is capped.
+    const failsafe = setTimeout(stop, (seconds + 10) * 1000);
+    child.on("close", () => {
+      clearTimeout(failsafe);
+      resolvePromise(existsSync(file) && sizeOf(file) > 0);
+    });
+    child.on("error", () => {
+      clearTimeout(failsafe);
+      resolvePromise(false);
+    });
+  });
+}
+
+/** Open a URL on the device, which is how a deep link gets tested. */
+async function openUrl(
+  target: string | undefined,
+  url: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "open");
+  if (url === undefined) {
+    throw new AxiError("sim open needs a URL", "VALIDATION_ERROR", [
+      `xcodebuild-axi sim open "${simulator.name}" myapp://checkout`,
+    ]);
+  }
+
+  const { exitCode, stderr } = await simctl(["openurl", simulator.udid, url]);
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not open ${url}`, "UNKNOWN", [
+      firstLine(stderr),
+      "A scheme no installed app claims is refused by the device, not by this tool",
+    ]);
+  }
+  return renderFields({ opened: url, sim: simulator.name });
+}
+
+function sizeOf(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
 }
 
 /**

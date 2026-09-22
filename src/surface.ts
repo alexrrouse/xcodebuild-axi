@@ -519,22 +519,10 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
   terminate: only("sim terminate"),
   uninstall: only("sim uninstall"),
   listapps: only("sim apps"),
-  create: { status: "missing", why: "a missing device cannot be created" },
-  delete: {
-    status: "missing",
-    from: "sim",
-    why: "stale devices cannot be reclaimed, and they cost gigabytes",
-  },
-  io: {
-    status: "missing",
-    from: "sim",
-    why: "a screenshot of a failing UI cannot be taken",
-  },
-  openurl: {
-    status: "missing",
-    from: "sim",
-    why: "a deep link cannot be opened, which is how deep links are tested",
-  },
+  create: only("sim create"),
+  delete: only("sim delete"),
+  io: only("sim screenshot", "sim video"),
+  openurl: only("sim open"),
   privacy: {
     status: "missing",
     from: "sim",

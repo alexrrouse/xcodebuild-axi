@@ -28,6 +28,31 @@ Notable changes to `xcodebuild-axi`. Versions follow
   `simctl listapps` prints an old-style NeXTSTEP plist rather than JSON, and
   offers no `-j`; it goes through `plutil` to become readable.
 
+- **`sim` makes devices, unmakes them, and shows what one looks like.**
+  `create`, `delete`, `screenshot`, `video` and `open`.
+
+  `sim create "Test iPhone" "iPhone 17 Pro"` takes the model by the name
+  `sim list` prints rather than by the
+  `com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro` identifier simctl
+  documents, and an unknown model comes back with the models that nearly
+  match. `--runtime` picks the OS.
+
+  `sim delete <name>` removes one and `--unavailable` removes every device
+  whose runtime is gone, which is the safe form of reclaiming disk. Deleting
+  _everything_ needs `--yes` on top of `--all`: a simulator is gigabytes of
+  state and recreating it is not the same device, so it gets the same guard
+  `migrate --format` has.
+
+  `sim screenshot` and `sim video` write to `~/Library/Caches` and report the
+  path and size. `simctl io recordVideo` records until it is sent SIGINT,
+  which is a contract for a person at a terminal — an agent cannot press
+  Control-C inside its own subprocess — so `--seconds` sets the length and the
+  interrupt is this tool's job. The clock starts when simctl says
+  `Recording started` rather than at spawn, so a slow start does not eat the
+  recording.
+
+  `sim open <url>` is how a deep link gets tested.
+
 ## [0.1.11] - 2026-09-21
 
 ### Added

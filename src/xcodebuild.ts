@@ -249,6 +249,26 @@ export function mergedCoveragePath(paths: string[]): string {
 }
 
 /**
+ * Where a screenshot or a screen recording lands.
+ *
+ * Under the cache directory like everything else this tool writes, and named
+ * for the device and the moment so a second capture does not overwrite the
+ * first -- the usual reason for taking two is to compare them.
+ */
+export function capturePath(device: string, extension: string): string {
+  const slug = device.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return join(
+    homedir(),
+    "Library",
+    "Caches",
+    "xcodebuild-axi",
+    "captures",
+    `${slug}-${stamp}.${extension}`,
+  );
+}
+
+/**
  * Strip xcodebuild's fixed preamble.
  *
  * Every invocation — including the read-only ones — reprints the command line,
