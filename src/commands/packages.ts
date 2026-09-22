@@ -38,11 +38,16 @@ examples:
   xcodebuild-axi packages --resolve --offline
 `;
 
-const FLAGS = ["--resolve", "--filter", "--scheme", ...PACKAGE_FLAGS] as const;
+export const PACKAGES_FLAGS = [
+  "--resolve",
+  "--filter",
+  "--scheme",
+  ...PACKAGE_FLAGS,
+] as const;
 const VALUE_FLAGS = ["--filter", "--scheme", ...PACKAGE_VALUE_FLAGS] as const;
 
 export async function packagesCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "packages", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "packages", PACKAGES_FLAGS, VALUE_FLAGS);
 
   const project = requireProject();
   const blocks: string[] = [];

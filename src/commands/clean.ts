@@ -12,10 +12,14 @@ examples:
   xcodebuild-axi clean --scheme MyApp --configuration Release
 `;
 
-const FLAGS = ["--scheme", "--configuration", "--derived-data"] as const;
+export const CLEAN_FLAGS = [
+  "--scheme",
+  "--configuration",
+  "--derived-data",
+] as const;
 
 export async function cleanCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "clean", FLAGS, FLAGS);
+  rejectUnknownFlags(args, "clean", CLEAN_FLAGS, CLEAN_FLAGS);
 
   // Cleaning needs no destination, and resolving one costs a whole
   // `-showdestinations` subprocess against a scheme we are about to wipe.

@@ -36,10 +36,15 @@ examples:
   xcodebuild-axi result build/MyApp.xcresult --failures --full
 `;
 
-const FLAGS = ["--failures", "--warnings", "--max", "--full"] as const;
+export const RESULT_FLAGS = [
+  "--failures",
+  "--warnings",
+  "--max",
+  "--full",
+] as const;
 
 export async function resultCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "result", FLAGS, ["--max"]);
+  rejectUnknownFlags(args, "result", RESULT_FLAGS, ["--max"]);
 
   const [rawPath] = positionals(args, ["--max"]);
   if (rawPath === undefined) {

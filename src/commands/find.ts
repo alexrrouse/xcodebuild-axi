@@ -16,11 +16,11 @@ examples:
   xcodebuild-axi find libLTO.dylib --library
 `;
 
-const FLAGS = ["--library", "--sdk", "--toolchain"] as const;
+export const FIND_FLAGS = ["--library", "--sdk", "--toolchain"] as const;
 const VALUE_FLAGS = ["--sdk", "--toolchain"] as const;
 
 export async function findCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "find", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "find", FIND_FLAGS, VALUE_FLAGS);
 
   const [name] = positionals(args, VALUE_FLAGS);
   if (name === undefined) {

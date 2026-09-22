@@ -14,7 +14,7 @@ examples:
   xcodebuild-axi info --sdks --platform iphonesimulator
 `;
 
-const FLAGS = ["--sdks", "--platform"] as const;
+export const INFO_FLAGS = ["--sdks", "--platform"] as const;
 
 interface RawSdk {
   canonicalName?: string;
@@ -25,7 +25,7 @@ interface RawSdk {
 }
 
 export async function infoCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "info", FLAGS, ["--platform"]);
+  rejectUnknownFlags(args, "info", INFO_FLAGS, ["--platform"]);
 
   const [version, developerDir, sdks, simulators] = await Promise.all([
     readVersion(),

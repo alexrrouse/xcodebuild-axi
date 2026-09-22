@@ -6,6 +6,36 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- Coverage is now measured along four axes instead of one, and `src/surface.ts`
+  declares all four. The old number asked "does any command reach this
+  option?", answered 100%, and hid every gap that has been found since — so it
+  now also asks which commands reach it, what the options _behind_ an option
+  are, and how much of the companion tools is wrapped.
+
+  - **Reach** counts one pair per command an option applies to. An option
+    declares the surface it belongs to, and every command in that surface must
+    be recorded as reached, declined with a reason, or missing; silence fails
+    the test suite. 93.6% of 328 pairs today, with 21 open.
+  - **Leaves** counts switches rather than options: the 18 keys of
+    `-exportOptionsPlist`, the 8 arguments of `-create-xcframework`, and the
+    second forms that `-help` mentions only inside a usage line, all of which
+    used to ride free on the one option that names them. 89.4% of 160.
+  - **Companion tools** — `xcresulttool`, `xccov`, `simctl` — are classified
+    for the first time, separately from xcodebuild's own number. 16.9% of 71.
+
+  The claims are checked against the commands themselves rather than trusted:
+  every command exports its flag list, `COMMAND_FLAGS` collects them, and
+  `test/surface.test.ts` fails if the map says `settings --target` while
+  `settings` would reject it.
+
+- The README's coverage section grew a **Still open** table — every known gap,
+  what it costs, and the command it will land on. It is generated, so it
+  shrinks as the gaps close rather than going stale.
+
+## [0.1.7] - 2026-09-21
+
 ### Fixed
 
 - `export --artifacts-dir <path>` — the flag `build`, `archive` and `test`
@@ -13,6 +43,8 @@ Notable changes to `xcodebuild-axi`. Versions follow
   Its log went to the tool's cache regardless, so a failed upload left its
   transcript exactly where CI's artifact step does not look. The command that
   talks to App Store Connect was the worst one to leave behind.
+
+## [0.1.6] - 2026-09-21
 
 ### Added
 

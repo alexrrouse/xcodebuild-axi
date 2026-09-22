@@ -37,7 +37,7 @@ examples:
   xcodebuild-axi settings --scheme MyApp --for-index --file MyApp/AppFeature.swift
 `;
 
-const FLAGS = [
+export const SETTINGS_FLAGS = [
   "--scheme",
   "--key",
   "--configuration",
@@ -60,7 +60,7 @@ const VALUE_FLAGS = [
 ] as const;
 
 export async function settingsCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "settings", FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "settings", SETTINGS_FLAGS, VALUE_FLAGS);
 
   const keys = getListFlag(args, "--key");
   const all = hasFlag(args, "--all");

@@ -15,10 +15,14 @@ examples:
   xcodebuild-axi destinations --scheme MyApp --simulators
 `;
 
-const FLAGS = ["--scheme", "--all", "--simulators"] as const;
+export const DESTINATIONS_FLAGS = [
+  "--scheme",
+  "--all",
+  "--simulators",
+] as const;
 
 export async function destinationsCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "destinations", FLAGS, ["--scheme"]);
+  rejectUnknownFlags(args, "destinations", DESTINATIONS_FLAGS, ["--scheme"]);
 
   const project = requireProject();
   const scheme = await requireScheme(

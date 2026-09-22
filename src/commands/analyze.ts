@@ -21,13 +21,11 @@ examples:
   xcodebuild-axi analyze --scheme MyApp --full
 `;
 
+/** `analyze` takes the shared set unchanged; named so the coverage matrix can read it. */
+export const ANALYZE_FLAGS = SHARED_BUILD_FLAGS;
+
 export async function analyzeCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(
-    args,
-    "analyze",
-    SHARED_BUILD_FLAGS,
-    SHARED_BUILD_VALUE_FLAGS,
-  );
+  rejectUnknownFlags(args, "analyze", ANALYZE_FLAGS, SHARED_BUILD_VALUE_FLAGS);
 
   const context = await resolveBuildContext({ args, command: "analyze" });
   const run = await runAction({

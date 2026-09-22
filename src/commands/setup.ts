@@ -21,7 +21,7 @@ examples:
   xcodebuild-axi setup hooks --status
 `;
 
-const FLAGS = ["--project", "--status", "--uninstall"] as const;
+export const SETUP_FLAGS = ["--project", "--status", "--uninstall"] as const;
 
 /**
  * Passed explicitly rather than left to the SDK to infer.
@@ -55,7 +55,7 @@ const MARKER = "xcodebuild-axi";
 const HOOK_TIMEOUT_SECONDS = 30;
 
 export async function setupCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "setup", FLAGS);
+  rejectUnknownFlags(args, "setup", SETUP_FLAGS);
 
   const [target] = positionals(args, []);
   if (target !== "hooks") {

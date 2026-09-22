@@ -190,19 +190,50 @@ remove that fallback believing the bundle is always sufficient; it is not.
 
 ## Coverage of xcodebuild's surface is declared, not guessed
 
-`src/surface.ts` classifies every option `xcodebuild -help` prints as
-`exposed` (an `xcodebuild-axi` flag reaches it), `always` (the tool sets it for
-you), `superseded` (answered better by something this tool already does — only
-`-help` and `-usage`), or `n/a` (deliberately not wrapped, with the reason
-stated). All 117 are currently covered; `installsrc` is the one build action
-left out.
+`src/surface.ts` classifies every leaf of every surface this tool wraps. A
+**leaf** is one switch someone could type: an option, a build action, a key of
+`-exportOptionsPlist`, an argument of `-create-xcframework`, a subcommand of
+`xcresulttool`. Each is `exposed` (an `xcodebuild-axi` flag reaches it),
+`always` (the tool sets it for you), `superseded` (answered better by something
+this tool already does), `missing` (a gap being paid down — `from` names the
+command that will grow it), or `n/a` (deliberately not wrapped, with the reason
+stated).
+
+Coverage is asked along four axes, because for a long time it was asked along
+the first one only and every miss landed on the other three:
+
+1. **Options** — does any command reach it. This was the original number, and
+   it has read 100% since before any of the gaps below were found.
+2. **Reach** — does _every_ command xcodebuild accepts it on reach it. An
+   exposed option declares a `surface` (`build`, `action`, `resolution`,
+   `package`, `scheme`, `testing`), and every command in that surface must be
+   listed as reached, `declined` with a reason, or `missing`. Silence fails the
+   suite. `-target` on `build` but not on `settings` is the shape of every bug
+   this axis exists to catch.
+3. **Forms and sub-surfaces** — the options behind an option. `-help` prints
+   `-exportOptionsPlist` as one line and never mentions its eighteen keys;
+   `-create-xcframework`'s arguments live behind its own `-help`; some second
+   forms (`-version <infoitem>`, `-runFirstLaunch -checkForNewerComponents`)
+   appear only inside a usage line or a sentence.
+4. **Companion tools** — `xcresulttool`, `xccov`, `simctl`. Not xcodebuild, so
+   deliberately not in its headline number, but this tool wraps all three and
+   an agent that shells out to one directly has dropped back down to raw tools.
+
+`test/surface.test.ts` checks the map against the commands themselves: every
+`via` must name a real command, and a flag that command's `FLAGS` actually
+accepts and its `--help` actually documents. That is why each command exports
+its flag list and `src/cli.ts` collects them into `COMMAND_FLAGS` — the map
+cannot claim reach the CLI does not have.
+
 `scripts/coverage.ts` reads the denominator from the installed
-`xcodebuild -help`, computes the percentage, and rewrites the README section
-between the `<!-- coverage:start -->` markers.
+`xcodebuild -help`, computes every percentage, and rewrites the README section
+between the `<!-- coverage:start -->` markers — including the **Still open**
+table, which is the work plan: one row per known gap, what it costs, and the
+command it lands on.
 
 `npm run coverage:check` fails on a stale README anywhere, and CI runs it.
-`n/a` options stay in the denominator on purpose — declining to wrap something
-should cost the number something.
+`n/a` and `missing` leaves stay in the denominator on purpose — declining to
+wrap something, or not having got to it, should both cost the number something.
 
 The other two failures — an option this xcodebuild lists that the map has never
 classified, and an option the map claims that xcodebuild has dropped — are only
