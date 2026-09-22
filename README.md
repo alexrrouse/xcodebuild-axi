@@ -204,38 +204,33 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Companion tools
 
-`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **36.6% of 71 leaves**, counted the same way:
+`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **43.7% of 71 leaves**, counted the same way:
 
 | Tool           | Leaves | Covered   |
 | -------------- | ------ | --------- |
 | `xcresulttool` | 21     | 17 (81%)  |
-| `xccov`        | 9      | 4 (44.4%) |
+| `xccov`        | 9      | 9 (100%)  |
 | `simctl`       | 41     | 5 (12.2%) |
 
 ### Still open
 
-18 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
+13 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
 
-| Leaf                                       | Unreachable from | What that costs                                                         |
-| ------------------------------------------ | ---------------- | ----------------------------------------------------------------------- |
-| `xccov view --report --functions-for-file` | `coverage`       | coverage stops at the file, so the uncovered function has no name       |
-| `xccov view --archive`                     | `coverage`       | a standalone .xccovarchive cannot be read, only a result bundle         |
-| `xccov view --file`                        | `coverage`       | the per-line coverage of one file cannot be printed                     |
-| `xccov diff`                               | `coverage`       | 'did coverage drop' cannot be answered from two bundles this tool wrote |
-| `xccov merge`                              | `coverage`       | the coverage of a sharded run cannot be combined                        |
-| `simctl install`                           | `sim`            | a built .app cannot be put on the simulator it was built for            |
-| `simctl launch`                            | `sim`            | the app a build just produced cannot be run                             |
-| `simctl terminate`                         | `?`              | a running app cannot be stopped                                         |
-| `simctl uninstall`                         | `?`              | an installed app cannot be removed                                      |
-| `simctl listapps`                          | `sim`            | what is installed on a simulator cannot be listed                       |
-| `simctl create`                            | `?`              | a missing device cannot be created                                      |
-| `simctl delete`                            | `sim`            | stale devices cannot be reclaimed, and they cost gigabytes              |
-| `simctl io`                                | `sim`            | a screenshot of a failing UI cannot be taken                            |
-| `simctl openurl`                           | `sim`            | a deep link cannot be opened, which is how deep links are tested        |
-| `simctl privacy`                           | `sim`            | a permission prompt cannot be granted ahead of a UI test                |
-| `simctl push`                              | `sim`            | a push notification cannot be simulated                                 |
-| `simctl status_bar`                        | `sim`            | the status bar cannot be pinned, which screenshot tests need            |
-| `simctl ui`                                | `sim`            | dark mode and content size cannot be set for a test run                 |
+| Leaf                | Unreachable from | What that costs                                                  |
+| ------------------- | ---------------- | ---------------------------------------------------------------- |
+| `simctl install`    | `sim`            | a built .app cannot be put on the simulator it was built for     |
+| `simctl launch`     | `sim`            | the app a build just produced cannot be run                      |
+| `simctl terminate`  | `?`              | a running app cannot be stopped                                  |
+| `simctl uninstall`  | `?`              | an installed app cannot be removed                               |
+| `simctl listapps`   | `sim`            | what is installed on a simulator cannot be listed                |
+| `simctl create`     | `?`              | a missing device cannot be created                               |
+| `simctl delete`     | `sim`            | stale devices cannot be reclaimed, and they cost gigabytes       |
+| `simctl io`         | `sim`            | a screenshot of a failing UI cannot be taken                     |
+| `simctl openurl`    | `sim`            | a deep link cannot be opened, which is how deep links are tested |
+| `simctl privacy`    | `sim`            | a permission prompt cannot be granted ahead of a UI test         |
+| `simctl push`       | `sim`            | a push notification cannot be simulated                          |
+| `simctl status_bar` | `sim`            | the status bar cannot be pinned, which screenshot tests need     |
+| `simctl ui`         | `sim`            | dark mode and content size cannot be set for a test run          |
 
 The denominator is read from `xcodebuild -help` rather than hand-maintained, and this table is written against **Xcode 27.0** — the option list moves between releases. `npm run coverage:check` fails on that Xcode if an option here is unclassified or has been dropped, and reports the difference without failing on any other.
 
