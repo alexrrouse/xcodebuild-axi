@@ -49,6 +49,34 @@ Notable changes to `xcodebuild-axi`. Versions follow
   With these two, **`xcresulttool` coverage is 81% of its leaves** and every
   remaining one is deprecated by Xcode or superseded here.
 
+- **`coverage` sees everything `xccov` sees.** Five leaves, and the command's
+  path argument now also takes an `.xccovreport` or an `.xccovarchive`:
+
+  - `--functions <file>` is per-function coverage, which is where an uncovered
+    branch finally gets a name. A file at 60% says a test is missing; it does
+    not say which one.
+  - `--lines <file>` is how many times each line ran, read out of the archive
+    rather than the report. Consecutive lines that never ran collapse into one
+    range — a 400-line file was 400 rows to find the eight that matter.
+  - `--against <path>` answers "did coverage drop" from two bundles this tool
+    wrote, reporting which way it moved overall and then per file, worst
+    first.
+  - `--merge` combines the coverage of a sharded run. `xccov merge` takes
+    report/archive **pairs** rather than result bundles, so each bundle is
+    unpacked with `xcresulttool export coverage` first — that two-step is the
+    reason merging coverage across shards is something people give up on.
+
+  With them, **`xccov` coverage is 100%** and companion coverage overall is
+  43.7%.
+
+### Fixed
+
+- `xccov`'s refusals are no longer wrapped in NSError. A bad path came back as
+  `Error: Error Domain=XCCovErrorDomain Code=0 "Failed to load result bundle"
+UserInfo={NSLocalizedDescription=Failed to load result bundle,
+NSUnderlyingError=0x… {…}}` — 400 characters around a five-word answer that
+  was already in there.
+
 ## [0.1.10] - 2026-09-21
 
 ### Added

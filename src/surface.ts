@@ -495,31 +495,11 @@ export const XCCOV_COVERAGE: Record<string, OptionCoverage> = {
   "view --report --only-targets": only("coverage"),
   "view --report --files-for-target": only("coverage --target"),
   "view --report --file-list": only("coverage --files"),
-  "view --report --functions-for-file": {
-    status: "missing",
-    from: "coverage",
-    why: "coverage stops at the file, so the uncovered function has no name",
-  },
-  "view --archive": {
-    status: "missing",
-    from: "coverage",
-    why: "a standalone .xccovarchive cannot be read, only a result bundle",
-  },
-  "view --file": {
-    status: "missing",
-    from: "coverage",
-    why: "the per-line coverage of one file cannot be printed",
-  },
-  diff: {
-    status: "missing",
-    from: "coverage",
-    why: "'did coverage drop' cannot be answered from two bundles this tool wrote",
-  },
-  merge: {
-    status: "missing",
-    from: "coverage",
-    why: "the coverage of a sharded run cannot be combined",
-  },
+  "view --report --functions-for-file": only("coverage --functions"),
+  "view --archive": only("coverage --lines"),
+  "view --file": only("coverage --lines"),
+  diff: only("coverage --against"),
+  merge: only("coverage --merge"),
 };
 
 /**

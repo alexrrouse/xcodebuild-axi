@@ -231,6 +231,23 @@ export function mergedBundlePath(paths: string[]): string {
   );
 }
 
+/** Where a merged coverage report and archive land when nobody said. */
+export function mergedCoveragePath(paths: string[]): string {
+  const hash = createHash("sha256")
+    .update(paths.join("\n"))
+    .digest("hex")
+    .slice(0, 8);
+  return join(
+    homedir(),
+    "Library",
+    "Caches",
+    "xcodebuild-axi",
+    "exports",
+    `coverage-${hash}`,
+    "merged.xccovreport",
+  );
+}
+
 /**
  * Strip xcodebuild's fixed preamble.
  *
