@@ -8,6 +8,28 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- **`result` reads the rest of what is in an `.xcresult`.** Seven modes, each
+  its own question, none of which had an answer short of shelling out to
+  `xcresulttool` and parsing JSON:
+
+  - `--tests` lists every test the run recorded, failures first, with the
+    identifier `--only` and `--activities --test` take.
+  - `--activities --test <id>` prints the step-by-step trail of one test,
+    indented by depth — what a UI test actually did before it failed.
+  - `--insights` reports Xcode's own diagnosis of the run.
+  - `--metrics` reports the performance measurements an `XCTMetric` test took,
+    which `test --perf-diagnostics` collects and nothing could read back.
+  - `--log [build|action|console]` reports the stored log as the timed tree it
+    is: the slowest sections of a build, ranked, without rebuilding it.
+  - `--available` says what the bundle holds — test results, coverage,
+    diagnostics, which logs — so a read that would fail can be skipped rather
+    than attempted.
+  - `--metadata` reports the bundle's own format version, storage backend and
+    compression.
+
+  That takes `xcresulttool` coverage from 19% to 52.4% of its leaves, and the
+  companion tools as a whole from 18.3% to 28.2%.
+
 - **The export options plist is fully covered.** `export` gained a flag for
   each of the twelve keys that had none, so nothing about a distribution
   requires authoring XML any more:
@@ -48,6 +70,15 @@ Notable changes to `xcodebuild-axi`. Versions follow
   `--team`, `--signing-style` and the ten new ones were not, so a release could
   pass `--team` beside a hand-written plist and get a build signed by whatever
   the plist said.
+
+### Fixed
+
+- `xcresulttool`'s own explanation of a failed read is now the error message.
+  It writes `Error: …` on stderr and exits non-zero; the reason was thrown away
+  and replaced with a guess ("the bundle may be from an incompatible Xcode
+  version"), so `--log console` on a bundle with no console log was reported as
+  a version problem rather than as the absent log it is. The guess is only
+  offered now when `xcresulttool` gave no reason of its own.
 
 ## [0.1.9] - 2026-09-21
 

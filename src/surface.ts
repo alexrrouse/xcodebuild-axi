@@ -459,37 +459,13 @@ export const XCFRAMEWORK_COVERAGE: Record<string, OptionCoverage> = {
 export const XCRESULT_COVERAGE: Record<string, OptionCoverage> = {
   "get build-results": only("result", "build", "test"),
   "get test-results summary": only("result", "test"),
-  "get test-results tests": {
-    status: "missing",
-    from: "result",
-    why: "the full test tree of a finished run cannot be listed",
-  },
+  "get test-results tests": only("result --tests"),
   "get test-results test-details": only("result", "test"),
-  "get test-results activities": {
-    status: "missing",
-    from: "result",
-    why: "the step-by-step activity trail of a failing test cannot be read",
-  },
-  "get test-results insights": {
-    status: "missing",
-    from: "result",
-    why: "Xcode's own diagnosis of a run is left on the floor",
-  },
-  "get test-results metrics": {
-    status: "missing",
-    from: "result",
-    why: "`test --perf-diagnostics` collects performance metrics nothing can read back",
-  },
-  "get log": {
-    status: "missing",
-    from: "result",
-    why: "the build log inside the bundle is reachable only as the raw transcript file",
-  },
-  "get content-availability": {
-    status: "missing",
-    from: "result",
-    why: "whether a bundle even has coverage or test results is found out by failing to read it",
-  },
+  "get test-results activities": only("result --activities"),
+  "get test-results insights": only("result --insights"),
+  "get test-results metrics": only("result --metrics"),
+  "get log": only("result --log"),
+  "get content-availability": only("result --available"),
   "export diagnostics": {
     status: "missing",
     from: "result",
@@ -520,11 +496,7 @@ export const XCRESULT_COVERAGE: Record<string, OptionCoverage> = {
     from: "result",
     why: "the bundles of a sharded test run cannot be combined",
   },
-  metadata: {
-    status: "missing",
-    from: "result",
-    why: "a bundle's own metadata cannot be read",
-  },
+  metadata: only("result --metadata"),
   "export coverage": {
     status: "superseded",
     why: "`coverage` reads the report with xccov rather than exporting an archive",

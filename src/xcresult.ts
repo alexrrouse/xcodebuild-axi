@@ -55,7 +55,11 @@ export interface TestSummary {
 export interface TestNode {
   nodeType?: string;
   name?: string;
+  /** `Target/Suite/testName()`, the identifier `--only` and `--test` take. */
+  nodeIdentifier?: string;
   result?: string;
+  /** Pre-formatted by xcresulttool, e.g. `0.028s`. */
+  duration?: string;
   sourceLocation?: { filePath?: string; lineNumber?: number };
   children?: TestNode[];
 }
@@ -65,6 +69,84 @@ export interface TestDetails {
   testName?: string;
   testResult?: string;
   testRuns?: TestNode[];
+}
+
+/** `get test-results tests` — the whole tree of what ran. */
+export interface TestTree {
+  devices?: TestDevice[];
+  testNodes?: TestNode[];
+}
+
+/** `get test-results activities` — what one test did, step by step. */
+export interface ActivityNode {
+  title?: string;
+  startTime?: number;
+  attachments?: unknown[];
+  childActivities?: ActivityNode[];
+}
+
+export interface TestActivities {
+  testIdentifier?: string;
+  testName?: string;
+  testRuns?: { device?: TestDevice; activities?: ActivityNode[] }[];
+}
+
+/** `get test-results insights` — Xcode's own diagnosis of a run. */
+export interface TestInsights {
+  commonFailureInsights?: Insight[];
+  failureDistributionInsights?: Insight[];
+  longestTestRunsInsights?: Insight[];
+}
+
+export interface Insight {
+  category?: string;
+  impact?: string;
+  text?: string;
+  testIdentifier?: string;
+  testName?: string;
+  totalDuration?: number;
+  count?: number;
+}
+
+/** `get test-results metrics` — what a performance test measured. */
+export interface TestMetric {
+  testIdentifier?: string;
+  testName?: string;
+  measurements?: {
+    displayName?: string;
+    unit?: string;
+    average?: number;
+    baselineAverage?: number;
+    maxPercentRelativeStandardDeviation?: number;
+  }[];
+}
+
+/** `get content-availability` — what is in the bundle at all. */
+export interface ContentAvailability {
+  hasCoverage?: boolean;
+  hasDiagnostics?: boolean;
+  hasTestResults?: boolean;
+  logs?: string[];
+}
+
+/** `get log` — the build or action log, as a tree of timed sections. */
+export interface LogSection {
+  title?: string;
+  result?: string;
+  duration?: number;
+  startTime?: number;
+  messages?: { title?: string; shortTitle?: string }[];
+  subsections?: LogSection[];
+  commandInvocationDetails?: { commandDetails?: string; exitCode?: number };
+}
+
+/** `metadata get` — the bundle's own storage details. */
+export interface BundleMetadata {
+  dateCreated?: string;
+  directoryImportMode?: string;
+  externalLocations?: unknown[];
+  storage?: { backend?: string; compression?: string };
+  version?: { major?: number; minor?: number };
 }
 
 export interface RawIssue {
@@ -108,15 +190,31 @@ function xcresulttool<T>(args: string[], path: string): Promise<T> {
       "xcrun",
       ["xcresulttool", ...args, "--path", path, "--compact"],
       { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error && stdout.trim().length === 0) {
+          // xcresulttool explains itself on stderr -- "No console log
+          // available", "Info.plist does not exist" -- and those answers are
+          // more specific than anything inferable from the exit code.
+          const reason = stderr
+            .split("\n")
+            .map((line) => line.trim())
+            .find((line) => line.startsWith("Error:"));
           rejectPromise(
             new AxiError(
-              `Could not read result bundle at ${path}`,
+              reason?.replace(/^Error:\s*/, "") ??
+                `Could not read result bundle at ${path}`,
               "RESULT_NOT_FOUND",
-              [
-                "The bundle may be from an incompatible Xcode version, or still being written",
-              ],
+              // Only guess when xcresulttool did not say. "No console log
+              // available" is a complete answer, and following it with
+              // "the bundle may be from an incompatible Xcode" sends the
+              // reader after a problem that is not there.
+              reason
+                ? [
+                    "Run `xcodebuild-axi result <path> --available` to see what this bundle holds",
+                  ]
+                : [
+                    "The bundle may be from an incompatible Xcode version, or still being written",
+                  ],
             ),
           );
           return;
@@ -190,6 +288,75 @@ export function failureLocation(details: TestDetails): {
 
   for (const run of details.testRuns ?? []) walk(run, 0);
   return best ? { file: best.file, line: best.line } : { file: "", line: "" };
+}
+
+/** Every test the run knows about, as the tree Xcode groups them into. */
+export function readTests(path: string): Promise<TestTree> {
+  return xcresulttool<TestTree>(["get", "test-results", "tests"], path);
+}
+
+/**
+ * What one test actually did, step by step.
+ *
+ * The summary says a test failed and `test-details` says where; this is the
+ * trail of what it had done by then, which is the only thing that explains a
+ * UI test that failed three screens into a flow.
+ */
+export function readActivities(
+  path: string,
+  testIdentifier: string,
+): Promise<TestActivities> {
+  return xcresulttool<TestActivities>(
+    ["get", "test-results", "activities", "--test-id", testIdentifier],
+    path,
+  );
+}
+
+/** Xcode's own diagnosis of a run: what failed together, and what was slow. */
+export function readInsights(path: string): Promise<TestInsights> {
+  return xcresulttool<TestInsights>(["get", "test-results", "insights"], path);
+}
+
+/** What a performance test measured, and what it measured last time. */
+export function readMetrics(
+  path: string,
+  testIdentifier?: string,
+): Promise<TestMetric[]> {
+  return xcresulttool<TestMetric[]>(
+    [
+      "get",
+      "test-results",
+      "metrics",
+      ...(testIdentifier ? ["--test-id", testIdentifier] : []),
+    ],
+    path,
+  );
+}
+
+/**
+ * What the bundle actually holds.
+ *
+ * Worth one subprocess because the alternative is finding out by asking for
+ * coverage and reading the failure — an error that looks like a broken tool
+ * rather than like an answer.
+ */
+export function readContentAvailability(
+  path: string,
+): Promise<ContentAvailability> {
+  return xcresulttool<ContentAvailability>(
+    ["get", "content-availability"],
+    path,
+  );
+}
+
+/** The build, action or console log, as the timed tree the bundle stores. */
+export function readLog(path: string, type: string): Promise<LogSection> {
+  return xcresulttool<LogSection>(["get", "log", "--type", type], path);
+}
+
+/** The bundle's own metadata — when it was written, and in what format. */
+export function readBundleMetadata(path: string): Promise<BundleMetadata> {
+  return xcresulttool<BundleMetadata>(["metadata", "get"], path);
 }
 
 export function readBuildResults(path: string): Promise<BuildResults> {
