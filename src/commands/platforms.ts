@@ -92,7 +92,7 @@ export async function platformsCommand(args: string[]): Promise<string> {
     case "download":
       return download(args, rest[0]);
     case "import":
-      return importPlatform(args, rest[0]);
+      return importPlatform(rest[0]);
     case "component":
       return component(args, rest[0], rest[1]);
     case "device-support":
@@ -206,10 +206,7 @@ async function download(
   });
 }
 
-async function importPlatform(
-  args: string[],
-  path: string | undefined,
-): Promise<string> {
+async function importPlatform(path: string | undefined): Promise<string> {
   if (path === undefined) {
     throw new AxiError(
       "platforms import needs a path to a .dmg",

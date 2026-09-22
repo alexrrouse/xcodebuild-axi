@@ -1,11 +1,10 @@
 import {
   existsSync,
-  mkdtempSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AxiError, mapXcodebuildError } from "../errors.js";
 import {
@@ -229,7 +228,10 @@ export async function exportCommand(args: string[]): Promise<string> {
     join(artifactDir(project), `${basenameOf(archivePath)}-export`);
 
   const plistPath =
-    optionsPath ?? (method ? writeGeneratedPlist(args, method) : undefined);
+    optionsPath ??
+    (method
+      ? writeGeneratedPlist(args, method, artifactDir(project), archivePath)
+      : undefined);
 
   // An upload leaves nothing on disk, so the empty-export warning below would
   // call a successful ship a silently wrong options plist. Read it back rather
@@ -491,9 +493,24 @@ function thinningOf(args: string[]): string | undefined {
     : value;
 }
 
-function writeGeneratedPlist(args: string[], method: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "xcodebuild-axi-export-"));
-  const path = join(dir, "ExportOptions.plist");
+/**
+ * Write the plist this command generates on the caller's behalf.
+ *
+ * It lands beside the log and the result bundle rather than in a `mkdtemp`
+ * directory, for two reasons: a temp directory per export accumulated one
+ * unreachable copy per run and cleaned up none of them, and the plist is the
+ * part of an export people most want to read back when a signing choice comes
+ * out wrong. Keyed on the archive so two archives in one project do not
+ * overwrite each other, and rewritten in place so runs do not pile up.
+ */
+function writeGeneratedPlist(
+  args: string[],
+  method: string,
+  dir: string,
+  archivePath: string,
+): string {
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${basenameOf(archivePath)}-ExportOptions.plist`);
   writeFileSync(path, exportOptionsPlist(generatedPlistOptions(args, method)));
   return path;
 }

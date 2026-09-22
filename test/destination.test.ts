@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   destinationSlug,
+  isPlaceholder,
   parseDestinationLine,
   pickDefault,
   type Destination,
@@ -17,6 +18,7 @@ describe("parseDestinationLine", () => {
       id: "55D87B92-69D0-46C0-8EB0-DD68E2C5C103",
       os: "26.5",
       name: "iPad (A16)",
+      variant: "",
       eligible: true,
     });
   });
@@ -38,11 +40,78 @@ describe("parseDestinationLine", () => {
     expect(parsed?.id).toContain("placeholder");
   });
 
+  // The one value in a destination row that contains a comma, which is why the
+  // split is driven by the next `key:`.
+  it("keeps a variant containing a comma intact", () => {
+    const parsed = parseDestinationLine(
+      "{ platform:macOS, arch:arm64, variant:Designed for [iPad,iPhone], id:00008112-000539543488C01E, name:My Mac }",
+    );
+    expect(parsed?.variant).toBe("Designed for [iPad,iPhone]");
+    expect(parsed?.name).toBe("My Mac");
+  });
+
+  it("reads the plain macOS row as having no variant", () => {
+    expect(
+      parseDestinationLine(
+        "{ platform:macOS, arch:arm64, id:00008112-000539543488C01E, name:My Mac }",
+      )?.variant,
+    ).toBe("");
+  });
+
   it("ignores lines that are not destination rows", () => {
     expect(
       parseDestinationLine("Available destinations for the MyApp scheme:"),
     ).toBeUndefined();
     expect(parseDestinationLine("")).toBeUndefined();
+  });
+});
+
+describe("isPlaceholder", () => {
+  const row = (line: string): Destination => {
+    const parsed = parseDestinationLine(line);
+    if (parsed === undefined) throw new Error(`unparsed: ${line}`);
+    return parsed;
+  };
+
+  it("catches the id a project gives a placeholder", () => {
+    expect(
+      isPlaceholder(
+        row(
+          "{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  // A Swift package omits `id` entirely rather than spelling it "placeholder",
+  // which let "Any Mac" and "Any DriverKit Host" through on every package.
+  it("catches the missing id a Swift package gives one instead", () => {
+    expect(isPlaceholder(row("{ platform:macOS, name:Any Mac }"))).toBe(true);
+    expect(
+      isPlaceholder(
+        row("{ platform:macOS, variant:Mac Catalyst, name:Any Mac }"),
+      ),
+    ).toBe(true);
+    expect(
+      isPlaceholder(row("{ platform:DriverKit, name:Any DriverKit Host }")),
+    ).toBe(true);
+  });
+
+  it("leaves a real destination alone", () => {
+    expect(
+      isPlaceholder(
+        row(
+          "{ platform:iOS Simulator, arch:arm64, id:55D87B92-69D0-46C0-8EB0-DD68E2C5C103, OS:26.5, name:iPad (A16) }",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isPlaceholder(
+        row(
+          "{ platform:macOS, arch:arm64, variant:DriverKit, id:00008112-000539543488C01E, name:My Mac }",
+        ),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -64,6 +133,8 @@ describe("pickDefault", () => {
     name,
     os,
     id: `${name}-${os}`,
+    arch: "arm64",
+    variant: "",
     eligible: true,
   });
 
