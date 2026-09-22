@@ -197,6 +197,14 @@ remove that fallback believing the bundle is always sufficient; it is not.
 - **`-convert-project` validates the format before touching the project**, and
   the only place it prints the valid formats is inside that rejection. So
   `migrate` asks for an impossible format to read the list, which is safe.
+- **`installsrc` is the one action a workspace cannot run.** It rejects
+  `-scheme` outright ("Cannot use the installsrc action with -scheme") and a
+  workspace refuses to act without one, so the only form that works is
+  `-project`. It also refuses a destination that already exists, and copies
+  the _whole_ project directory rather than its sources — a 271 MB checkout
+  came out as 258 MB across 5,104 files, most of it DerivedData. It is a
+  packaging step wearing a source export's name, and `build --install-src`
+  says so in its report.
 - **Simulator names are not unique.** Two runtimes routinely publish an
   "iPhone 17 Pro", and a `name=`-based destination silently resolves to
   whichever xcodebuild sees first. `src/destination.ts` always resolves to a
@@ -208,6 +216,28 @@ remove that fallback believing the bundle is always sufficient; it is not.
   watchOS for, observed on a plain SPM target. `pickDefault` ranks platform
   first (iOS, then tvOS, visionOS, watchOS), then OS version, then prefers an
   iPhone over an iPad on a tie.
+
+## Sharp edges in simctl
+
+Learned while wrapping the last of it, and none of it in `simctl help`:
+
+- **The status bar reads back as enum ordinals.** `status_bar <udid> list`
+  answers `Battery State: 2`, `WiFi Mode: 3`, `DataNetworkType: 11`; the words
+  those correspond to appear only in the flag documentation. `STATUS_WORDS` in
+  `src/commands/sim.ts` maps every value simctl accepts, checked by setting
+  each one and reading it back.
+- **A push to an app that is not installed succeeds.** `simctl push` exits 0
+  and delivers nothing, which is indistinguishable from a notification the app
+  ignored, so `sim push` checks `listapps` first.
+- **There is no way to read the current simulated location.** `location list`
+  lists the scenarios and nothing reports where the device is, which is why a
+  bare `sim location` lists rather than reports.
+- **`addmedia` explains a rejected file and then buries it.** The useful line
+  is `Failed to import '<path>', error [...]: <reason>`, followed by
+  "Multiple errors were returned; see stderr" — which is where the reader
+  already is.
+- **`get_app_container` exits 2 for an app that is not installed**, with an
+  NSPOSIXErrorDomain "No such file or directory" that never names the app.
 
 ## Coverage of xcodebuild's surface is declared, not guessed
 
