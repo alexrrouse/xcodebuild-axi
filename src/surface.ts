@@ -163,10 +163,13 @@ function only(...via: readonly string[]): OptionCoverage {
   return { status: "exposed", on: via.map(at) };
 }
 
-const gap = (command: string, why: string): Gap => ({ command, why });
-
-/** The gaps this file exists to make visible, phrased once and shared. */
-
+/**
+ * No option in this map is half-covered any more -- every one of them is
+ * reached from every command xcodebuild accepts it on. `Gap`, `declined` and
+ * `missing` stay in the model because the next option added is the one likely
+ * to arrive incomplete, and silence about that is what this file exists to
+ * prevent.
+ */
 export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-allowProvisioningDeviceRegistration": only(
     "archive --allow-device-registration",
@@ -381,25 +384,14 @@ export const ACTION_COVERAGE: Record<string, OptionCoverage> = {
  * flag, mentioned once, in prose.
  */
 export const FORM_COVERAGE: Record<string, OptionCoverage> = {
-  "-version -sdk <name> <infoitem>": {
-    status: "missing",
-    from: "info",
-    why: "`info --sdks` lists canonical names; an SDK's Path or ProductBuildVersion cannot be asked for",
-  },
+  "-version -sdk <name> <infoitem>": only("info --sdk"),
   "-runFirstLaunch -checkForNewerComponents": only(
     "platforms first-launch --check-updates",
   ),
   "-license check": only("platforms license"),
-  "<buildsetting>=<value>": {
-    status: "exposed",
-    on: [{ command: "settings", via: "settings --setting" }],
-    missing: [
-      gap(
-        "build",
-        "an override can be resolved but not built with, so `--setting` answers a question it cannot then act on",
-      ),
-    ],
-  },
+  "<buildsetting>=<value>": everywhere("build", "--setting", {
+    also: ["settings --setting"],
+  }),
   "-only-testing @<response-file>": only("test --only"),
   "-skip-testing @<response-file>": only("test --skip"),
   "-showBuildSettings -json": {
@@ -424,68 +416,20 @@ export const EXPORT_OPTION_COVERAGE: Record<string, OptionCoverage> = {
   destination: only("export --upload"),
   teamID: only("export --team"),
   signingStyle: only("export --signing-style"),
+  signingCertificate: only("export --certificate"),
+  installerSigningCertificate: only("export --installer-certificate"),
+  provisioningProfiles: only("export --profile"),
+  distributionBundleIdentifier: only("export --distribution-bundle-id"),
   uploadSymbols: only("export --no-upload-symbols"),
+  stripSwiftSymbols: only("export --keep-swift-symbols"),
   manageAppVersionAndBuildNumber: only("export --no-manage-version"),
-  provisioningProfiles: {
-    status: "missing",
-    from: "export",
-    why: "manual signing can be asked for but not completed — the profile per executable has no flag",
-  },
-  signingCertificate: {
-    status: "missing",
-    from: "export",
-    why: "manual signing cannot name the certificate to sign with",
-  },
-  installerSigningCertificate: {
-    status: "missing",
-    from: "export",
-    why: "a macOS installer package cannot name its signing certificate",
-  },
-  thinning: {
-    status: "missing",
-    from: "export",
-    why: "non-App Store exports cannot be thinned for a device variant",
-  },
-  stripSwiftSymbols: {
-    status: "missing",
-    from: "export",
-    why: "Swift symbols are always stripped, with no way to keep them",
-  },
-  testFlightInternalTestingOnly: {
-    status: "missing",
-    from: "export",
-    why: "a build cannot be marked internal-only, which is what a PR build wants",
-  },
-  distributionBundleIdentifier: {
-    status: "missing",
-    from: "export",
-    why: "an archive with several apps cannot pick which one to export",
-  },
-  generateAppStoreInformation: {
-    status: "missing",
-    from: "export",
-    why: "App Store information cannot be generated for an upload",
-  },
-  iCloudContainerEnvironment: {
-    status: "missing",
-    from: "export",
-    why: "a CloudKit app cannot choose the Development or Production container",
-  },
-  manifest: {
-    status: "missing",
-    from: "export",
-    why: "an over-the-web distribution manifest cannot be written",
-  },
-  embedOnDemandResourcesAssetPacksInBundle: {
-    status: "missing",
-    from: "export",
-    why: "on-demand resource asset packs cannot be embedded for testing",
-  },
-  onDemandResourcesAssetPacksBaseURL: {
-    status: "missing",
-    from: "export",
-    why: "on-demand resource asset packs cannot be pointed at a host",
-  },
+  testFlightInternalTestingOnly: only("export --internal-only"),
+  generateAppStoreInformation: only("export --app-store-info"),
+  iCloudContainerEnvironment: only("export --icloud-env"),
+  thinning: only("export --thinning"),
+  manifest: only("export --manifest"),
+  embedOnDemandResourcesAssetPacksInBundle: only("export --no-embed-odr"),
+  onDemandResourcesAssetPacksBaseURL: only("export --odr-base-url"),
 };
 
 /** `-create-xcframework`'s own options, which only its `-help` prints. */

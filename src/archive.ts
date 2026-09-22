@@ -84,44 +84,85 @@ export const EXPORT_METHODS = [
 ] as const;
 
 /**
- * Build a minimal export options plist.
- *
- * `-exportArchive` requires one, and authoring XML by hand is exactly the kind
- * of unguessable side quest an agent fails at. Given a method (and optionally
- * a team), the plist is derivable, so derive it.
+ * The names Xcode 26 and earlier used, which every existing pipeline and every
+ * answer written before Xcode 27 still says. xcodebuild itself still accepts
+ * them, so refusing them here would be this tool being stricter than the thing
+ * it wraps.
  */
-export function exportOptionsPlist(options: {
+export const EXPORT_METHOD_ALIASES: Record<string, string> = {
+  "app-store": "app-store-connect",
+  "ad-hoc": "release-testing",
+  development: "debugging",
+};
+
+/**
+ * Every key `-exportOptionsPlist` accepts, and what it is for.
+ *
+ * The plist is the whole configuration surface of `-exportArchive`. A key with
+ * no flag in front of it is a key that sends the agent back to authoring XML,
+ * which is the side quest this file exists to remove.
+ */
+export interface ExportOptions {
   method: string;
   destination?: string;
   teamID?: string;
   signingStyle?: string;
+  signingCertificate?: string;
+  installerSigningCertificate?: string;
+  /** Bundle identifier -> profile name or UUID, for manual signing. */
+  provisioningProfiles?: Record<string, string>;
+  distributionBundleIdentifier?: string;
   uploadSymbols?: boolean;
+  stripSwiftSymbols?: boolean;
   manageAppVersionAndBuildNumber?: boolean;
-}): string {
-  const entries: string[] = [
-    `  <key>method</key>\n  <string>${options.method}</string>`,
-  ];
-  if (options.destination) {
-    entries.push(
-      `  <key>destination</key>\n  <string>${options.destination}</string>`,
-    );
-  }
-  if (options.teamID) {
-    entries.push(`  <key>teamID</key>\n  <string>${options.teamID}</string>`);
-  }
-  if (options.signingStyle) {
-    entries.push(
-      `  <key>signingStyle</key>\n  <string>${options.signingStyle}</string>`,
-    );
-  }
-  if (options.uploadSymbols !== undefined) {
-    entries.push(`  <key>uploadSymbols</key>\n  <${options.uploadSymbols}/>`);
-  }
-  if (options.manageAppVersionAndBuildNumber !== undefined) {
-    entries.push(
-      `  <key>manageAppVersionAndBuildNumber</key>\n  <${options.manageAppVersionAndBuildNumber}/>`,
-    );
-  }
+  testFlightInternalTestingOnly?: boolean;
+  generateAppStoreInformation?: boolean;
+  iCloudContainerEnvironment?: string;
+  thinning?: string;
+  /** appURL, displayImageURL and fullSizeImageURL, for web distribution. */
+  manifest?: Record<string, string>;
+  embedOnDemandResourcesAssetPacksInBundle?: boolean;
+  onDemandResourcesAssetPacksBaseURL?: string;
+}
+
+/**
+ * The order keys are written in. Xcode does not care, but a generated file a
+ * human may end up reading should group signing with signing.
+ */
+const EXPORT_OPTION_ORDER: Array<keyof ExportOptions> = [
+  "method",
+  "destination",
+  "teamID",
+  "signingStyle",
+  "signingCertificate",
+  "installerSigningCertificate",
+  "provisioningProfiles",
+  "distributionBundleIdentifier",
+  "uploadSymbols",
+  "stripSwiftSymbols",
+  "manageAppVersionAndBuildNumber",
+  "testFlightInternalTestingOnly",
+  "generateAppStoreInformation",
+  "iCloudContainerEnvironment",
+  "thinning",
+  "manifest",
+  "embedOnDemandResourcesAssetPacksInBundle",
+  "onDemandResourcesAssetPacksBaseURL",
+];
+
+/**
+ * Build an export options plist.
+ *
+ * `-exportArchive` requires one, and authoring XML by hand is exactly the kind
+ * of unguessable side quest an agent fails at. Given a method (and whatever
+ * else was asked for), the plist is derivable, so derive it.
+ */
+export function exportOptionsPlist(options: ExportOptions): string {
+  const entries = EXPORT_OPTION_ORDER.flatMap((key) => {
+    const value = options[key];
+    return value === undefined ? [] : [`  <key>${key}</key>\n${render(value)}`];
+  });
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -130,4 +171,29 @@ ${entries.join("\n")}
 </dict>
 </plist>
 `;
+}
+
+function render(value: string | boolean | Record<string, string>): string {
+  if (typeof value === "boolean") return `  <${value}/>`;
+  if (typeof value === "string")
+    return `  <string>${escapeXml(value)}</string>`;
+  const inner = Object.entries(value)
+    .map(
+      ([key, entry]) =>
+        `    <key>${escapeXml(key)}</key>\n    <string>${escapeXml(entry)}</string>`,
+    )
+    .join("\n");
+  return `  <dict>\n${inner}\n  </dict>`;
+}
+
+/**
+ * A manifest URL with a query string carries `&`, and an unescaped one makes
+ * the plist unparseable -- which xcodebuild reports as a failed export rather
+ * than as a bad file.
+ */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

@@ -4,6 +4,51 @@ Notable changes to `xcodebuild-axi`. Versions follow
 [semver](https://semver.org/); the format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **The export options plist is fully covered.** `export` gained a flag for
+  each of the twelve keys that had none, so nothing about a distribution
+  requires authoring XML any more:
+
+  `--profile <id>=<name>`, `--certificate`, `--installer-certificate`,
+  `--distribution-bundle-id`, `--keep-swift-symbols`, `--internal-only`,
+  `--app-store-info`, `--icloud-env`, `--thinning`, `--manifest <key>=<url>`,
+  `--odr-base-url`, `--no-embed-odr`.
+
+  The ones that change whether a release works at all: `--profile` and
+  `--certificate` are manual signing, which until now could be _asked for_
+  with `--signing-style manual` and not completed — so the flag existed and
+  the export it produced could not be signed as intended. `--internal-only`
+  marks a TestFlight build as not for external distribution, which is what a
+  PR build wants. `--manifest` is over-the-web distribution, and it is refused
+  unless all three of its URLs are present, because a partial manifest exports
+  without an error and produces a link that cannot install.
+
+  Two spellings are handled rather than passed on: Xcode writes its named
+  thinning options with angle brackets (`<none>`), and the Xcode 26 method
+  names (`app-store`, `ad-hoc`, `development`) still work and are reported as
+  the current name they mean.
+
+- `info --sdk <name>` reports one SDK in full — path, platform path, platform,
+  and both versions. That was `xcodebuild -version -sdk <name> <infoitem>`,
+  which answers one field per invocation and only if you already know the
+  field names. A build script that needs the SDK path, or an agent asked which
+  build of the SDK it compiled against, had to shell out for it.
+
+  With it, **every leaf of xcodebuild's own surface that this tool wraps is
+  covered**: 160 of 161, and the one left is `installsrc`, which is declined
+  on purpose and says so.
+
+### Changed
+
+- The flags that shape the generated options plist are now **refused**
+  alongside `--options` rather than silently ignored. `--upload` already was;
+  `--team`, `--signing-style` and the ten new ones were not, so a release could
+  pass `--team` beside a hand-written plist and get a build signed by whatever
+  the plist said.
+
 ## [0.1.9] - 2026-09-21
 
 ### Added
