@@ -6,6 +6,27 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **`build --install-src` copies a project's sources out.** The last
+  xcodebuild action left, which takes the headline number to **100% of the 161
+  leaves `xcodebuild -help` documents**.
+
+  It was declined for a while because it writes outside
+  `~/Library/Caches/xcodebuild-axi`, which nothing else here does. So it
+  doesn't: the copy lands in this project's cache directory, and `--src-root`
+  puts it somewhere else only with `--yes`, the way `migrate --format` works.
+  A destination that already exists is refused rather than emptied — deleting
+  a directory the caller named is not this tool's call.
+
+  Three things about `installsrc` that its own help does not say, all verified
+  against a real project: it **cannot run against a workspace** (it rejects
+  `-scheme`, and a workspace refuses to act without one — so the `.xcodeproj`
+  beside the workspace is used), it **refuses a destination that exists**, and
+  it **copies the whole project directory**, DerivedData included. A 271 MB
+  checkout came out as 258 MB across 5,104 files. The report says so, because
+  "installsrc" reads like a source export and is a packaging step.
+
 ## [0.1.12] - 2026-09-21
 
 ### Added

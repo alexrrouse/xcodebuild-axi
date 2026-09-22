@@ -4,7 +4,7 @@
   <a href="https://www.npmjs.com/package/xcodebuild-axi"><img alt="npm" src="https://img.shields.io/npm/v/xcodebuild-axi?style=flat-square" /></a>
   <a href="https://axi.md/"><img alt="AXI" src="https://img.shields.io/badge/AXI-compliant-blue?style=flat-square" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square" />
-  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-99.4%25-brightgreen?style=flat-square" /><!-- coverage-badge:end -->
+  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-100%25-brightgreen?style=flat-square" /><!-- coverage-badge:end -->
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
@@ -171,18 +171,18 @@ Every command takes `--help`.
 
 <!-- coverage:start -->
 
-**Coverage: 99.4% of the 161 leaves `xcodebuild` documents** — every option, build action, export options key, `-create-xcframework` argument, and the second forms that only a usage line mentions.
+**Coverage: 100% of the 161 leaves `xcodebuild` documents** — every option, build action, export options key, `-create-xcframework` argument, and the second forms that only a usage line mentions.
 
 A leaf is one switch you could type. Counting options alone says 100% (117/117), which was true and hid every gap below: an option is one thing, and `-exportOptionsPlist` alone opens eighteen more.
 
-| Surface                                                | Leaves  | Covered         |
-| ------------------------------------------------------ | ------- | --------------- |
-| `xcodebuild -help` options                             | 117     | 117 (100%)      |
-| build actions                                          | 10      | 9 (90%)         |
-| second forms (`-version <infoitem>`, `-license check`) | 8       | 8 (100%)        |
-| `-exportOptionsPlist` keys                             | 18      | 18 (100%)       |
-| `-create-xcframework` options                          | 8       | 8 (100%)        |
-| **total**                                              | **161** | **160 (99.4%)** |
+| Surface                                                | Leaves  | Covered        |
+| ------------------------------------------------------ | ------- | -------------- |
+| `xcodebuild -help` options                             | 117     | 117 (100%)     |
+| build actions                                          | 10      | 10 (100%)      |
+| second forms (`-version <infoitem>`, `-license check`) | 8       | 8 (100%)       |
+| `-exportOptionsPlist` keys                             | 18      | 18 (100%)      |
+| `-create-xcframework` options                          | 8       | 8 (100%)       |
+| **total**                                              | **161** | **161 (100%)** |
 
 **Reach: 100%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 0 pairs are open.
 
@@ -199,8 +199,6 @@ A leaf is one switch you could type. Counting options alone says 100% (117/117),
 | `-workspace`                    | set from the .xcworkspace found in the working directory                        |
 | `-help`                         | `xcodebuild-axi --help`, which answers it in a fraction of the tokens           |
 | `-usage`                        | `xcodebuild-axi <command> --help`, per command rather than all 117 at once      |
-
-The one action left out is `installsrc` — it copies sources into `SRCROOT` as root, which is a packaging step rather than anything an agent loop needs.
 
 ### Companion tools
 
