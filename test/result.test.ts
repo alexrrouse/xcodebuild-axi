@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildFields,
+  deltaField,
+  failureDeltaRows,
   flattenTests,
   manifestRows,
   resultCommand,
@@ -248,5 +250,64 @@ describe("manifestRows", () => {
   it("says nothing rather than throwing on a manifest it cannot read", () => {
     expect(manifestRows(withManifest("not json"), "attachments")).toEqual([]);
     expect(manifestRows("/tmp/does-not-exist-axi", "attachments")).toEqual([]);
+  });
+});
+
+describe("result --against", () => {
+  const bundle = "/tmp/MyApps-1a2b3c4d/MyApp.xcresult";
+
+  it("needs the baseline to compare with", async () => {
+    await expect(resultCommand([bundle, "--against"])).rejects.toThrow(
+      /--against requires a value/,
+    );
+  });
+
+  // Both the level and the direction, because neither answers on its own:
+  // "2 warnings" hides that one is new, and "+1" hides that there are now
+  // two. A CI check reads the middle number; a human reads the ends.
+  it("says both where a count landed and how it moved", () => {
+    expect(
+      deltaField({
+        itemsInBaseline: 1,
+        itemsInCurrent: 2,
+        introduced: 2,
+        resolved: 1,
+      }),
+    ).toBe("1 → 2 (+2 -1)");
+  });
+
+  it("reads an absent delta as no change rather than as unknown", () => {
+    expect(deltaField(undefined)).toBe("0 → 0 (+0 -0)");
+  });
+
+  // The identifier is what `test --only` takes, so it is what a rerun needs;
+  // the display name is only a fallback for a bundle that carries no id.
+  it("names a newly failing test by its identifier", () => {
+    expect(
+      failureDeltaRows([
+        {
+          associatedTest: {
+            name: "testTotal()",
+            testIdentifier: "MyAppTests/CheckoutTests/testTotal",
+          },
+          failureMessage: "XCTAssertEqual failed",
+        },
+        { associatedTest: { name: "testTax()" } },
+      ]),
+    ).toEqual([
+      {
+        test: "MyAppTests/CheckoutTests/testTotal",
+        message: "XCTAssertEqual failed",
+      },
+      { test: "testTax()", message: "" },
+    ]);
+  });
+});
+
+describe("result --merge", () => {
+  it("refuses to merge one bundle with nothing", async () => {
+    await expect(
+      resultCommand(["/tmp/MyApps-1a2b3c4d/MyApp.xcresult", "--merge"]),
+    ).rejects.toThrow(/combines two or more bundles/);
   });
 });

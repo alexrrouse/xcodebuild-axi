@@ -470,16 +470,8 @@ export const XCRESULT_COVERAGE: Record<string, OptionCoverage> = {
   "export attachments": only("result --export"),
   "export metrics": only("result --export"),
   "export evaluations": only("result --export"),
-  compare: {
-    status: "missing",
-    from: "result",
-    why: "two runs cannot be diffed, which is the question CI asks most",
-  },
-  merge: {
-    status: "missing",
-    from: "result",
-    why: "the bundles of a sharded test run cannot be combined",
-  },
+  compare: only("result --against"),
+  merge: only("result --merge"),
   metadata: only("result --metadata"),
   "export coverage": {
     status: "superseded",

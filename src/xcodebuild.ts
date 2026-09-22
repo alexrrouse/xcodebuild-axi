@@ -210,6 +210,28 @@ export function exportDir(bundlePath: string, kind: string): string {
 }
 
 /**
+ * Where a merged bundle lands when the caller did not say.
+ *
+ * Hashed over every input rather than just the first, so merging a different
+ * set of shards does not quietly overwrite the last merge of a different set.
+ */
+export function mergedBundlePath(paths: string[]): string {
+  const hash = createHash("sha256")
+    .update(paths.join("\n"))
+    .digest("hex")
+    .slice(0, 8);
+  return join(
+    homedir(),
+    "Library",
+    "Caches",
+    "xcodebuild-axi",
+    "exports",
+    `merged-${hash}`,
+    "merged.xcresult",
+  );
+}
+
+/**
  * Strip xcodebuild's fixed preamble.
  *
  * Every invocation — including the read-only ones — reprints the command line,

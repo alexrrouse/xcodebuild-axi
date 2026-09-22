@@ -27,6 +27,28 @@ Notable changes to `xcodebuild-axi`. Versions follow
   attachment export with one "Skipped export for <test>: no matching
   attachments" per test, which is dropped.
 
+- **`result --against <baseline.xcresult>`** answers the question CI actually
+  asks — not "did this run fail" but "did it fail in a way the last one did
+  not". It reports the counts on both sides and their direction
+  (`failures: 0 → 1 (+1 -0)`), then the tests that newly fail, the ones that
+  now pass, the ones added and removed, and any new warning. A failure the
+  baseline did not have is listed first, because it is the only part of a
+  comparison that stops a merge.
+
+  Two bundles with nothing in common — a build against a test run — get an
+  explicit answer saying so. `xcresulttool` prints a bare `null` there, which
+  is otherwise indistinguishable from a clean comparison.
+
+- **`result <a> <b> [...] --merge`** combines the bundles of a sharded test run
+  into one, which is the only way that run gets a single verdict. The merged
+  bundle is read back and reported from, rather than described from its
+  inputs. It lands under `~/Library/Caches` unless `--to` says otherwise, and a
+  `--to` that already exists is refused rather than written over — the bundle
+  under our own cache directory is ours to clear, one the caller named is not.
+
+  With these two, **`xcresulttool` coverage is 81% of its leaves** and every
+  remaining one is deprecated by Xcode or superseded here.
+
 ## [0.1.10] - 2026-09-21
 
 ### Added
