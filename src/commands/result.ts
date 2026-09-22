@@ -1,7 +1,11 @@
 import { AxiError } from "../errors.js";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
+import { exportDir } from "../xcodebuild.js";
 import {
   describeDevice,
+  exportBundle,
+  EXPORT_KINDS,
   readActivities,
   readBuildResults,
   readBundleMetadata,
@@ -13,11 +17,14 @@ import {
   readTestSummary,
   toDiagnostics,
   type ActivityNode,
+  type AttachmentManifestEntry,
   type BuildResults,
   type BundleMetadata,
   type ContentAvailability,
+  type ExportKind,
   type Insight,
   type LogSection,
+  type MetricsManifestEntry,
   type TestInsights,
   type TestMetric,
   type TestNode,
@@ -26,6 +33,7 @@ import {
 } from "../xcresult.js";
 import { diagnosticsBlock, failureRows } from "../report.js";
 import {
+  byteSize,
   duration,
   renderFields,
   renderHelp,
@@ -43,7 +51,7 @@ import {
 
 export const RESULT_HELP = `usage: xcodebuild-axi result <path.xcresult> [flags]
 Re-reads a result bundle that a previous run wrote, without rebuilding.
-flags[12]:
+flags[15]:
   --failures     failures and errors only
   --warnings     include the full warning list
   --tests        every test the run recorded, as the tree Xcode groups them into
@@ -53,7 +61,11 @@ flags[12]:
   --log <type>   the stored build, action, or console log, as timed sections
   --available    what this bundle holds at all: coverage, logs, test results
   --metadata     when the bundle was written, and in what format
-  --test <id>    the test --activities or --metrics is about
+  --export <what> write part of the bundle out: attachments, diagnostics,
+                 metrics, or evaluations
+  --to <dir>     where --export writes (default: under ~/Library/Caches)
+  --test <id>    the test --activities, --metrics or --export is about
+  --filter <glob> with --export attachments: filenames to keep, e.g. '*.png'
   --max <n>      rows to list before summarizing the rest (default: 20)
   --full         untruncated messages
 note:
@@ -61,11 +73,17 @@ note:
   anything. --available is the cheapest first question about a bundle from
   somewhere else: it says whether there is coverage or a log to ask for,
   instead of letting you find out by failing to read one.
+
+  --export writes files rather than printing them, so it reports what landed
+  and where. --failures narrows attachments and evaluations to what a failing
+  test produced, which is usually all anyone wants out of a green run's
+  hundreds of screenshots.
 examples:
   xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.xcresult
   xcodebuild-axi result build/MyApp.xcresult --failures --full
   xcodebuild-axi result build/MyApp.xcresult --log build --max 10
   xcodebuild-axi result build/MyApp.xcresult --activities --test MyAppTests/CheckoutTests/testTotal
+  xcodebuild-axi result build/MyApp.xcresult --export attachments --failures
 `;
 
 export const RESULT_FLAGS = [
@@ -78,12 +96,22 @@ export const RESULT_FLAGS = [
   "--log",
   "--available",
   "--metadata",
+  "--export",
+  "--to",
   "--test",
+  "--filter",
   "--max",
   "--full",
 ] as const;
 
-const VALUE_FLAGS = ["--max", "--log", "--test"] as const;
+const VALUE_FLAGS = [
+  "--max",
+  "--log",
+  "--test",
+  "--export",
+  "--to",
+  "--filter",
+] as const;
 
 export async function resultCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "result", RESULT_FLAGS, VALUE_FLAGS);
@@ -213,6 +241,7 @@ const MODES = [
   "--log",
   "--available",
   "--metadata",
+  "--export",
 ] as const;
 
 /**
@@ -267,6 +296,8 @@ async function readMode(
       return reportAvailability(await readContentAvailability(path), bundle);
     case "--metadata":
       return reportMetadata(await readBundleMetadata(path), bundle);
+    case "--export":
+      return runExport(path, args, max, bundle);
   }
 }
 
@@ -291,6 +322,223 @@ function logType(args: string[]): string {
     ]);
   }
   return type;
+}
+
+/**
+ * `--export`, which writes files instead of printing them.
+ *
+ * The shape of the answer is therefore what landed and where, rather than the
+ * content: a screenshot is not something to render into a terminal, but the
+ * path to one is exactly what the next tool call needs.
+ */
+async function runExport(
+  path: string,
+  args: string[],
+  max: number,
+  bundle: string,
+): Promise<string> {
+  const kind = exportKind(args);
+  const requested = getFlag(args, "--to");
+  const outputPath = requested
+    ? resolve(expandTilde(requested))
+    : exportDir(path, kind);
+  const testId = getFlag(args, "--test");
+  const filter = getFlag(args, "--filter");
+  const onlyFailures = hasFlag(args, "--failures");
+
+  // Refused rather than dropped, because each of these changes what comes out.
+  // Passing --filter to a diagnostics export and getting everything back is a
+  // wrong answer that looks like a right one.
+  if (filter !== undefined && kind !== "attachments") {
+    throw new AxiError(
+      `--filter narrows attachments by filename, and ${kind} has none`,
+      "VALIDATION_ERROR",
+      ["Drop --filter, or export attachments"],
+    );
+  }
+  if (testId !== undefined && kind === "diagnostics") {
+    throw new AxiError(
+      "A diagnostics report covers the whole run, not one test",
+      "VALIDATION_ERROR",
+      ["Drop --test, or export attachments, metrics or evaluations"],
+    );
+  }
+  if (onlyFailures && (kind === "diagnostics" || kind === "metrics")) {
+    throw new AxiError(
+      `--failures narrows an export to what a failing test produced, and ${kind} is not per-test`,
+      "VALIDATION_ERROR",
+      ["Drop --failures, or export attachments or evaluations"],
+    );
+  }
+
+  await exportBundle({ path, kind, outputPath, testId, filter, onlyFailures });
+
+  const files = walkFiles(outputPath).filter(
+    (file) => basename(file.path) !== MANIFEST,
+  );
+  const to = renderFields({ to: tildePath(outputPath) });
+
+  if (files.length === 0) {
+    return renderOutput([
+      renderFields({
+        export: kind,
+        files: `none — this bundle holds no ${kind}${describeNarrowing(testId, filter, onlyFailures)}`,
+      }),
+      bundle,
+      renderHelp([
+        "Run `xcodebuild-axi result <path> --available` to see what this bundle holds",
+        ...(kind === "attachments"
+          ? [
+              "Xcode keeps attachments only when the test asks it to, or when the test failed",
+            ]
+          : []),
+      ]),
+    ]);
+  }
+
+  // The manifest is what ties an exported filename back to the test that made
+  // it. When it is missing or says nothing -- an older bundle, or a directory
+  // reused for a second export -- the files that are actually there are still
+  // a true answer, and a truer one than an empty table.
+  const named = kind === "diagnostics" ? [] : manifestRows(outputPath, kind);
+  const rows =
+    kind === "diagnostics"
+      ? diagnosticRows(outputPath)
+      : named.length > 0
+        ? named
+        : files.map((file) => ({
+            file: relative(outputPath, file.path),
+            size: byteSize(file.bytes),
+          }));
+  const shown = rows.slice(0, max);
+
+  return renderOutput([
+    renderFields({
+      export: kind,
+      files: files.length,
+      size: byteSize(files.reduce((sum, file) => sum + file.bytes, 0)),
+    }),
+    to,
+    renderList(
+      rows.length > shown.length
+        ? `exported (${shown.length} of ${rows.length})`
+        : "exported",
+      shown,
+    ),
+    bundle,
+  ]);
+}
+
+const MANIFEST = "manifest.json";
+
+function exportKind(args: string[]): ExportKind {
+  const what = getFlag(args, "--export");
+  if (what === undefined || !EXPORT_KINDS.includes(what as ExportKind)) {
+    throw new AxiError(
+      what === undefined
+        ? "--export needs to know what to write out"
+        : `Nothing named '${what}' can be exported from a result bundle`,
+      "VALIDATION_ERROR",
+      [`what can be exported: ${EXPORT_KINDS.join(", ")}`],
+    );
+  }
+  return what as ExportKind;
+}
+
+/** Say which narrowing produced an empty export, so it can be lifted. */
+function describeNarrowing(
+  testId: string | undefined,
+  filter: string | undefined,
+  onlyFailures: boolean,
+): string {
+  const applied = [
+    testId ? `for '${testId}'` : undefined,
+    filter ? `matching '${filter}'` : undefined,
+    onlyFailures ? "from a failing test" : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return applied.length > 0 ? ` ${applied.join(" ")}` : "";
+}
+
+/**
+ * The manifest `xcresulttool` writes beside the files it exported, which is
+ * the only thing that ties an exported filename back to the test that made it.
+ */
+export function manifestRows(
+  outputPath: string,
+  kind: ExportKind,
+): Array<Record<string, unknown>> {
+  const manifestPath = join(outputPath, MANIFEST);
+  if (!existsSync(manifestPath)) return [];
+
+  let entries: Array<AttachmentManifestEntry & MetricsManifestEntry>;
+  try {
+    entries = JSON.parse(readFileSync(manifestPath, "utf-8")) as Array<
+      AttachmentManifestEntry & MetricsManifestEntry
+    >;
+  } catch {
+    return [];
+  }
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (const entry of entries) {
+    const test = entry.testIdentifier ?? "";
+    for (const file of entry.metricsFiles ?? []) rows.push({ test, file });
+    for (const attachment of entry.attachments ?? []) {
+      rows.push({
+        test,
+        file: attachment.exportedFileName ?? "",
+        name: attachment.suggestedHumanReadableName ?? "",
+        ...(kind === "attachments"
+          ? { failure: attachment.isAssociatedWithFailure === true }
+          : {}),
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * A diagnostics export has no manifest — it is a directory per device per
+ * action, each holding dozens of logs. One row per top-level directory says
+ * what was collected without printing a file list nobody reads.
+ */
+function diagnosticRows(outputPath: string): Array<Record<string, unknown>> {
+  return readdirSync(outputPath, { withFileTypes: true })
+    .filter((entry) => entry.name !== MANIFEST)
+    .map((entry) => {
+      const full = join(outputPath, entry.name);
+      const files = entry.isDirectory()
+        ? walkFiles(full)
+        : [{ path: full, bytes: sizeOf(full) }];
+      return {
+        report: entry.name,
+        files: files.length,
+        size: byteSize(files.reduce((sum, file) => sum + file.bytes, 0)),
+      } as unknown as Record<string, string>;
+    })
+    .sort((a, b) => String(a.report).localeCompare(String(b.report)));
+}
+
+function walkFiles(dir: string): Array<{ path: string; bytes: number }> {
+  if (!existsSync(dir)) return [];
+  const found: Array<{ path: string; bytes: number }> = [];
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else found.push({ path: full, bytes: sizeOf(full) });
+    }
+  };
+  walk(dir);
+  return found;
+}
+
+function sizeOf(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
 }
 
 /**

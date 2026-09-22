@@ -466,26 +466,10 @@ export const XCRESULT_COVERAGE: Record<string, OptionCoverage> = {
   "get test-results metrics": only("result --metrics"),
   "get log": only("result --log"),
   "get content-availability": only("result --available"),
-  "export diagnostics": {
-    status: "missing",
-    from: "result",
-    why: "`test --diagnostics` collects a diagnostics report that cannot be extracted",
-  },
-  "export attachments": {
-    status: "missing",
-    from: "result",
-    why: "UI test screenshots and attachments cannot be got out of the bundle",
-  },
-  "export metrics": {
-    status: "missing",
-    from: "result",
-    why: "performance measurements cannot be exported as CSV",
-  },
-  "export evaluations": {
-    status: "missing",
-    from: "result",
-    why: "evaluation attachments cannot be exported",
-  },
+  "export diagnostics": only("result --export"),
+  "export attachments": only("result --export"),
+  "export metrics": only("result --export"),
+  "export evaluations": only("result --export"),
   compare: {
     status: "missing",
     from: "result",
