@@ -533,10 +533,7 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
     why: "a sysdiagnose is an Apple support artifact, not an agent loop",
   },
   addmedia: only("sim media"),
-  appinfo: {
-    status: "n/a",
-    why: "`listapps` answers the same question for an agent",
-  },
+  appinfo: only("sim apps"),
   get_app_container: only("sim container"),
   getenv: {
     status: "n/a",
@@ -568,7 +565,7 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
   },
   install_app_data: {
     status: "n/a",
-    why: "app data fixtures belong to a test target",
+    why: "simctl's own install_app_data fails with containermanager error 55 on Xcode 27",
   },
   personalization: {
     status: "n/a",
@@ -580,14 +577,8 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
     why: "watch pairing is a Simulator.app concern",
   },
   unpair: { status: "n/a", why: "watch pairing is a Simulator.app concern" },
-  pbcopy: {
-    status: "n/a",
-    why: "pasteboard plumbing belongs to a test target",
-  },
-  pbpaste: {
-    status: "n/a",
-    why: "pasteboard plumbing belongs to a test target",
-  },
+  pbcopy: only("sim pasteboard"),
+  pbpaste: only("sim pasteboard"),
   pbsync: {
     status: "n/a",
     why: "pasteboard plumbing belongs to a test target",
