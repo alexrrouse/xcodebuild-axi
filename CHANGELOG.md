@@ -6,6 +6,8 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-09-22
+
 ### Fixed
 
 - **A half-finished `-showdestinations` is no longer reported as a scheme with
@@ -662,6 +664,7 @@ First release.
   `src/surface.ts` and checked against the installed Xcode in CI.
 
 [unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.14...HEAD
+[0.1.15]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.11...v0.1.12
