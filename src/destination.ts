@@ -66,20 +66,11 @@ export function isPlaceholder(destination: Destination): boolean {
   return destination.id.length === 0 || destination.id.includes("placeholder");
 }
 
-export async function listDestinations(
-  project: ProjectContext,
-  scheme: string,
-): Promise<Destination[]> {
-  const { stdout, stderr } = await runMetadata([
-    ...project.flags,
-    "-scheme",
-    scheme,
-    "-showdestinations",
-  ]);
-
+/** Parse a whole `-showdestinations` transcript. */
+export function parseDestinations(text: string): Destination[] {
   const out: Destination[] = [];
   let eligible = true;
-  for (const line of `${stdout}\n${stderr}`.split("\n")) {
+  for (const line of text.split("\n")) {
     if (/Ineligible destinations/i.test(line)) {
       eligible = false;
       continue;
@@ -92,6 +83,63 @@ export async function listDestinations(
     if (parsed && !isPlaceholder(parsed)) out.push({ ...parsed, eligible });
   }
   return out;
+}
+
+/**
+ * Whether a `-showdestinations` answer can be trusted.
+ *
+ * ⚠️ **xcodebuild sometimes stops after the generic rows.** Enumerating
+ * simulators and devices is a separate step from listing the scheme's
+ * platforms, and when it fails — most reproducibly while another xcodebuild is
+ * finishing on the same machine — the output ends after the `My Mac` /
+ * `Any Mac` block with nothing saying anything went wrong. Taken at face value
+ * that becomes a confident `Scheme 'X' has no destination named 'iPhone 17
+ * Pro'` for a scheme that has one, which is the worst shape a wrong answer can
+ * take: the caller stops looking.
+ *
+ * So an answer naming no simulator and no physical device is treated as
+ * unfinished rather than as a scheme that supports neither. A genuinely
+ * Mac-only scheme pays one extra probe on a path that was going to fail
+ * anyway.
+ */
+export function answerLooksComplete(
+  destinations: Destination[],
+  exitCode: number,
+): boolean {
+  if (exitCode !== 0) return false;
+  return destinations.some(
+    (destination) => !/^(macOS|DriverKit)$/i.test(destination.platform),
+  );
+}
+
+export async function listDestinations(
+  project: ProjectContext,
+  scheme: string,
+): Promise<Destination[]> {
+  const probe = async (): Promise<{
+    destinations: Destination[];
+    complete: boolean;
+  }> => {
+    const { stdout, stderr, exitCode } = await runMetadata([
+      ...project.flags,
+      "-scheme",
+      scheme,
+      "-showdestinations",
+    ]);
+    const destinations = parseDestinations(`${stdout}\n${stderr}`);
+    return {
+      destinations,
+      complete: answerLooksComplete(destinations, exitCode),
+    };
+  };
+
+  // ⚠️ **One retry, not a loop.** The failure is transient and the probe costs
+  // a few seconds; a scheme that really is Mac-only would otherwise pay for
+  // every attempt on every invocation.
+  const first = await probe();
+  if (first.complete) return first.destinations;
+  const second = await probe();
+  return second.complete ? second.destinations : first.destinations;
 }
 
 /** Compare two "26.5"-style versions; newest first. */
@@ -131,9 +179,8 @@ export async function resolveDestination(
     return { specifier: options.raw, described: options.raw };
   }
 
-  const destinations = (
-    await listDestinations(options.project, options.scheme)
-  ).filter((destination) => destination.eligible);
+  const everything = await listDestinations(options.project, options.scheme);
+  const destinations = everything.filter((destination) => destination.eligible);
 
   if (destinations.length === 0) {
     throw new AxiError(
@@ -154,6 +201,25 @@ export async function resolveDestination(
       destinations.find((d) => d.id.toLowerCase() === wanted) ??
       destinations.find((d) => d.name.toLowerCase().includes(wanted));
     if (!match) {
+      // ⚠️ **"Ineligible" is a different problem with a different fix.**
+      // xcodebuild lists a destination it knows about but will not run
+      // against — a simulator whose runtime is missing, a device that is not
+      // connected — under its own heading. Reported as "no destination named
+      // …" that sends the reader to check their spelling of a name that was
+      // right.
+      const ineligible = everything.find(
+        (d) => !d.eligible && d.name.toLowerCase() === wanted,
+      );
+      if (ineligible) {
+        throw new AxiError(
+          `Scheme '${options.scheme}' lists '${options.device}' as ineligible`,
+          "DESTINATION_NOT_FOUND",
+          [
+            "xcodebuild will not run against it — a simulator runtime may be missing, or a device disconnected",
+            `Run \`xcodebuild-axi destinations --scheme ${options.scheme}\` to see everything xcodebuild reported`,
+          ],
+        );
+      }
       const names = [...new Set(destinations.map((d) => d.name))].slice(0, 12);
       throw new AxiError(
         `Scheme '${options.scheme}' has no destination named '${options.device}'`,

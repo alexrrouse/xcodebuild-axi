@@ -8,6 +8,26 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Fixed
 
+- **A half-finished `-showdestinations` is no longer reported as a scheme with
+  no simulators.** Enumerating simulators and devices is a separate step from
+  listing a scheme's platforms, and it intermittently does not happen — most
+  reproducibly while another xcodebuild is finishing on the same machine. The
+  output then ends after the `My Mac` / `Any Mac` block with nothing saying
+  anything went wrong, and `--device "iPhone 17 Pro"` failed with
+  `Scheme 'X' has no destination named 'iPhone 17 Pro'` and
+  `available: My Mac, Any DriverKit Host, Any Mac` — for a scheme that lists it,
+  as the same command run a second later shows. That is the worst shape a wrong
+  answer can take, because the caller stops looking. An answer naming no
+  simulator and no physical device, or one from a probe that exited non-zero, is
+  now treated as unfinished and the probe is retried once. Seen in the wild as a
+  red PR gate on two of seven Swift packages, a different two each run.
+
+- **A destination that is listed but ineligible says so.** xcodebuild puts a
+  simulator whose runtime is missing, or a device that is not connected, under
+  its own heading; matching only the eligible rows turned that into
+  "has no destination named …", which sends the reader to check the spelling of
+  a name that was right.
+
 - **`destinations` no longer prints rows an agent cannot tell apart.**
   xcodebuild lists macOS once per arch and once per variant, so one Mac came
   back as four byte-identical `My Mac,macOS,""` rows — the arch and the

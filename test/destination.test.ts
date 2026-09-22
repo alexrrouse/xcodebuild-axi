@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  answerLooksComplete,
   destinationSlug,
   isPlaceholder,
   parseDestinationLine,
+  parseDestinations,
   pickDefault,
   type Destination,
 } from "../src/destination.js";
@@ -182,5 +184,80 @@ describe("pickDefault", () => {
       destination("watchOS Simulator", "Apple Watch", "26.5"),
     ]);
     expect(picked.name).toBe("Apple Watch");
+  });
+});
+
+describe("answerLooksComplete", () => {
+  const row = (platform: string, name: string): Destination => ({
+    platform,
+    name,
+    id: "00008112-000539543488C01E",
+    os: "",
+    arch: "arm64",
+    variant: "",
+    eligible: true,
+  });
+
+  it("accepts an answer that reached the simulators", () => {
+    expect(
+      answerLooksComplete(
+        [row("macOS", "My Mac"), row("iOS Simulator", "iPhone 17 Pro")],
+        0,
+      ),
+    ).toBe(true);
+  });
+
+  // The shape of the bug: xcodebuild stopped after the generic block, so the
+  // only thing left is the Mac. Trusted, that becomes "this scheme has no
+  // iPhone 17 Pro" for a scheme that does.
+  it("rejects an answer that never got past the Mac", () => {
+    expect(
+      answerLooksComplete(
+        [row("macOS", "My Mac"), row("DriverKit", "Any DriverKit Host")],
+        0,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects any answer from a probe that failed, however full", () => {
+    expect(
+      answerLooksComplete([row("iOS Simulator", "iPhone 17 Pro")], 74),
+    ).toBe(false);
+  });
+
+  it("rejects an empty answer", () => {
+    expect(answerLooksComplete([], 0)).toBe(false);
+  });
+
+  // A physical device is as good a sign the enumeration ran as a simulator is.
+  it("accepts an answer that reached a connected device", () => {
+    expect(answerLooksComplete([row("iOS", "Alex's iPhone")], 0)).toBe(true);
+  });
+});
+
+describe("parseDestinations", () => {
+  const transcript = [
+    '\tDestinations compatible with the "DesignSystem" scheme:',
+    "\t\t{ platform:macOS, arch:arm64, id:00008112-0005, name:My Mac }",
+    "\t\t{ platform:iOS Simulator, arch:arm64, id:55D8, OS:26.5, name:iPhone 17 Pro }",
+    "",
+    '\tIneligible destinations for the "DesignSystem" scheme:',
+    "\t\t{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }",
+    "\t\t{ platform:iOS Simulator, arch:arm64, id:9F9F, OS:18.0, name:iPhone 15 }",
+  ].join("\n");
+
+  it("splits the two headings and drops the placeholders", () => {
+    const parsed = parseDestinations(transcript);
+    expect(parsed.map((d) => [d.name, d.eligible])).toEqual([
+      ["My Mac", true],
+      ["iPhone 17 Pro", true],
+      ["iPhone 15", false],
+    ]);
+  });
+
+  it("finds nothing in a transcript that never listed a row", () => {
+    expect(
+      parseDestinations("Command line invocation:\nResolve Package Graph"),
+    ).toEqual([]);
   });
 });
