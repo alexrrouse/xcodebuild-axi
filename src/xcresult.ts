@@ -51,6 +51,22 @@ export interface TestSummary {
   }[];
 }
 
+/** A node of the tree `test-details` returns for one test. */
+export interface TestNode {
+  nodeType?: string;
+  name?: string;
+  result?: string;
+  sourceLocation?: { filePath?: string; lineNumber?: number };
+  children?: TestNode[];
+}
+
+export interface TestDetails {
+  testIdentifier?: string;
+  testName?: string;
+  testResult?: string;
+  testRuns?: TestNode[];
+}
+
 export interface RawIssue {
   issueType?: string;
   message?: string;
@@ -122,6 +138,58 @@ function xcresulttool<T>(args: string[], path: string): Promise<T> {
 
 export function readTestSummary(path: string): Promise<TestSummary> {
   return xcresulttool<TestSummary>(["get", "test-results", "summary"], path);
+}
+
+/**
+ * Where one test failed, which the summary does not carry.
+ *
+ * `TestFailure` in a test-results summary has a name, a target and a message
+ * and no source location at all — so the only way to tell an agent which line
+ * to look at is to ask about each failing test by name.
+ */
+export function readTestDetails(
+  path: string,
+  testIdentifier: string,
+): Promise<TestDetails> {
+  return xcresulttool<TestDetails>(
+    ["get", "test-results", "test-details", "--test-id", testIdentifier],
+    path,
+  );
+}
+
+/**
+ * The file and line a failing test points at.
+ *
+ * **These line numbers are one-based**, unlike the `StartingLineNumber` in a
+ * build diagnostic's `sourceURL`, which is zero-based and gets a `+1` in
+ * `parseSourceURL`. Verified against a real failing assertion: an
+ * `XCTAssertEqual` written on line 10 is reported here as `lineNumber: 10`.
+ * Adding an offset to one of these would send the agent one line past the
+ * failure, every time.
+ *
+ * The deepest node wins: a "Source Code Reference" child points at the
+ * assertion itself, while its parent points at the test case that ran it.
+ */
+export function failureLocation(details: TestDetails): {
+  file: string;
+  line: number | "";
+} {
+  let best: { file: string; line: number | ""; depth: number } | undefined;
+
+  const walk = (node: TestNode, depth: number): void => {
+    const location = node.sourceLocation;
+    if (location?.filePath && (best === undefined || depth >= best.depth)) {
+      best = {
+        file: relativize(location.filePath),
+        line: location.lineNumber ?? "",
+        depth,
+      };
+    }
+    for (const child of node.children ?? []) walk(child, depth + 1);
+  };
+
+  for (const run of details.testRuns ?? []) walk(run, 0);
+  return best ? { file: best.file, line: best.line } : { file: "", line: "" };
 }
 
 export function readBuildResults(path: string): Promise<BuildResults> {

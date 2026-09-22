@@ -119,9 +119,18 @@ measured 549 KB, and a full verify run of the same repo 2.5 MB.
   against a real build. Sending an agent to the wrong line is worse than
   sending it nowhere, so the `+1` lives in `parseSourceURL` and nowhere else.
 - **`TestFailure` carries no `sourceURL`** — only `testName`, `targetName`,
-  `failureText`, and `testIdentifierString`. Per-failure source locations need
-  `xcresulttool get test-results test-details`, which is a drill-down, not
-  something the summary can provide.
+  `failureText`, and `testIdentifierString`. Per-failure source locations come
+  from `xcresulttool get test-results test-details --test-id <identifier>`,
+  one read per failing test, so `failureRows()` looks up only the failures it
+  is about to print.
+- **`test-details` line numbers are one-based**, which is the opposite of the
+  `sourceURL` fragment above. Verified against a real failing assertion: an
+  `XCTAssertEqual` written on line 10 comes back as `lineNumber: 10`. Adding
+  the `+1` that `parseSourceURL` needs would land the agent one line past every
+  test failure, so `failureLocation()` deliberately applies no offset.
+  Within a test's node tree the deepest `sourceLocation` wins — a
+  "Source Code Reference" child points at the assertion, its parent at the test
+  case that ran it.
 
 ## xcodebuild failures that produce no usable bundle
 

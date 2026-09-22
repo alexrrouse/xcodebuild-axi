@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  failureLocation,
   parseSourceURL,
   relativize,
   toDiagnostics,
@@ -132,5 +133,89 @@ describe("relativize and /private", () => {
     expect(relativize("/private/tmp/elsewhere/A.swift", "/repo")).toBe(
       "/tmp/elsewhere/A.swift",
     );
+  });
+});
+
+describe("failureLocation", () => {
+  /**
+   * The shape a real `xcresulttool get test-results test-details` returns for
+   * an XCTAssertEqual written on line 10 — and it reports `lineNumber: 10`,
+   * one-based, unlike the zero-based fragment a build diagnostic carries.
+   */
+  const details = {
+    testIdentifier: "CheckoutTests/testTotalIsWrong()",
+    testRuns: [
+      {
+        nodeType: "Device",
+        name: "iPhone 17",
+        children: [
+          {
+            nodeType: "Test Plan Configuration",
+            name: "Test Scheme Action",
+            children: [
+              {
+                nodeType: "Test Case Run",
+                name: "XCTAssertEqual failed",
+                result: "Failed",
+                sourceLocation: {
+                  filePath: "/w/Tests/MyAppTests/CheckoutTests.swift",
+                  lineNumber: 10,
+                },
+                children: [
+                  {
+                    nodeType: "Source Code Reference",
+                    name: "",
+                    sourceLocation: {
+                      filePath: "/w/Tests/MyAppTests/CheckoutTests.swift",
+                      lineNumber: 10,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("reports the line as the file numbers it, without an offset", () => {
+    expect(failureLocation(details)).toEqual({
+      file: "/w/Tests/MyAppTests/CheckoutTests.swift",
+      line: 10,
+    });
+  });
+
+  it("prefers the deepest reference, which is the assertion itself", () => {
+    const nested = {
+      testRuns: [
+        {
+          nodeType: "Test Case Run",
+          name: "failed",
+          sourceLocation: { filePath: "/w/Case.swift", lineNumber: 4 },
+          children: [
+            {
+              nodeType: "Source Code Reference",
+              name: "",
+              sourceLocation: {
+                filePath: "/w/Assertion.swift",
+                lineNumber: 42,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(failureLocation(nested)).toEqual({
+      file: "/w/Assertion.swift",
+      line: 42,
+    });
+  });
+
+  it("returns nothing rather than guessing when no node carries a location", () => {
+    expect(
+      failureLocation({ testRuns: [{ nodeType: "Device", name: "x" }] }),
+    ).toEqual({ file: "", line: "" });
+    expect(failureLocation({})).toEqual({ file: "", line: "" });
   });
 });

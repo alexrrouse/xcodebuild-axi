@@ -8,6 +8,23 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- A failing test now reports **where** it failed. The failures table gained
+  `file` and `line` columns, in `test` and in `result` alike.
+
+  A test-results summary carries a name, a target and a message, and no source
+  location at all — so until now a failing assertion came back as text an agent
+  had to go and search the repository for. The location lives one drill-down
+  away, in `xcresulttool get test-results test-details`, which is read once per
+  failure actually being printed.
+
+  These line numbers are one-based, unlike the zero-based ones in a build
+  diagnostic's `sourceURL`; both are now documented where the code applies
+  them, because an off-by-one here points at the line after the failure.
+
+## [0.1.8] - 2026-09-21
+
+### Added
+
 - `xcframework` takes `--archive`, `--debug-symbols` and
   `--allow-internal-distribution`, which is the other half of
   `-create-xcframework`. The workflow it was missing is the usual one: archive
