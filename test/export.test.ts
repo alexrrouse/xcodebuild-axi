@@ -72,6 +72,139 @@ describe("export options plist", () => {
   });
 });
 
+/**
+ * The other twelve keys. Each one used to be a reason to stop using this
+ * command and author the XML by hand, which is the whole thing `--method`
+ * exists to avoid.
+ */
+describe("the rest of the export options plist", () => {
+  it("writes a provisioning profile per bundle id, and implies manual signing", () => {
+    const plist = exportOptionsPlist(
+      generatedPlistOptions(
+        [
+          "--profile",
+          "com.example.MyApp=MyApp Distribution",
+          "--profile",
+          "com.example.MyApp.Widget=Widget Distribution",
+        ],
+        "release-testing",
+      ),
+    );
+    expect(plist).toContain("<key>provisioningProfiles</key>");
+    expect(plist).toContain(
+      "    <key>com.example.MyApp</key>\n    <string>MyApp Distribution</string>",
+    );
+    // Naming a profile and then letting Xcode pick one is not a thing anyone
+    // means, and the export that results is signed with something else.
+    expect(plist).toContain(
+      "<key>signingStyle</key>\n  <string>manual</string>",
+    );
+  });
+
+  it("leaves an explicit signing style alone", () => {
+    const plist = exportOptionsPlist(
+      generatedPlistOptions(
+        ["--certificate", "Apple Distribution", "--signing-style", "automatic"],
+        "release-testing",
+      ),
+    );
+    expect(plist).toContain("<string>automatic</string>");
+  });
+
+  it("rejects a profile that names no bundle id", () => {
+    expect(() =>
+      generatedPlistOptions(
+        ["--profile", "MyApp Distribution"],
+        "release-testing",
+      ),
+    ).toThrow(/expects <bundle-id>=<profile>/);
+  });
+
+  // Xcode spells its named thinning options with angle brackets; a device
+  // model identifier has none.
+  it("spells the thinning options the way Xcode does", () => {
+    const of = (value: string) =>
+      generatedPlistOptions(["--thinning", value], "release-testing").thinning;
+    expect(of("none")).toBe("<none>");
+    expect(of("<none>")).toBe("<none>");
+    expect(of("thin-for-all-variants")).toBe("<thin-for-all-variants>");
+    expect(of("iPhone7,1")).toBe("iPhone7,1");
+  });
+
+  it("fixes the case of an iCloud environment, and passes anything else through", () => {
+    const of = (value: string) =>
+      generatedPlistOptions(["--icloud-env", value], "app-store-connect")
+        .iCloudContainerEnvironment;
+    expect(of("production")).toBe("Production");
+    expect(of("Development")).toBe("Development");
+    expect(of("SomethingElse")).toBe("SomethingElse");
+  });
+
+  // A manifest missing one of its three URLs exports without an error and
+  // produces a link that cannot install -- a failure on someone else's device.
+  it("refuses a partial distribution manifest", () => {
+    expect(() =>
+      generatedPlistOptions(
+        ["--manifest", "appURL=https://example.com/a.ipa"],
+        "release-testing",
+      ),
+    ).toThrow(/displayImageURL/);
+  });
+
+  it("refuses a manifest key Xcode does not have", () => {
+    expect(() =>
+      generatedPlistOptions(
+        ["--manifest", "iconURL=https://example.com/i.png"],
+        "release-testing",
+      ),
+    ).toThrow(/Unknown manifest key/);
+  });
+
+  it("escapes a URL with a query string, which would otherwise break the plist", () => {
+    const plist = exportOptionsPlist(
+      generatedPlistOptions(
+        [
+          "--manifest",
+          "appURL=https://example.com/a.ipa?v=1&build=2",
+          "--manifest",
+          "displayImageURL=https://example.com/i.png",
+          "--manifest",
+          "fullSizeImageURL=https://example.com/f.png",
+        ],
+        "release-testing",
+      ),
+    );
+    expect(plist).toContain("a.ipa?v=1&amp;build=2");
+  });
+
+  it("writes the booleans only when they differ from Xcode's default", () => {
+    const plist = exportOptionsPlist(
+      generatedPlistOptions(
+        [
+          "--keep-swift-symbols",
+          "--internal-only",
+          "--app-store-info",
+          "--no-embed-odr",
+        ],
+        "app-store-connect",
+      ),
+    );
+    expect(plist).toContain("<key>stripSwiftSymbols</key>\n  <false/>");
+    expect(plist).toContain(
+      "<key>testFlightInternalTestingOnly</key>\n  <true/>",
+    );
+    expect(plist).toContain(
+      "<key>generateAppStoreInformation</key>\n  <true/>",
+    );
+    expect(plist).toContain(
+      "<key>embedOnDemandResourcesAssetPacksInBundle</key>\n  <false/>",
+    );
+    expect(
+      exportOptionsPlist(generatedPlistOptions([], "app-store-connect")),
+    ).not.toContain("stripSwiftSymbols");
+  });
+});
+
 describe("recognising an upload in a plist", () => {
   it("reads back its own generated plist", () => {
     const plist = exportOptionsPlist(

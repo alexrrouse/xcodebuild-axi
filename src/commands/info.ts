@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { AxiError } from "../errors.js";
 import { runMetadata } from "../xcodebuild.js";
 import { listSimulators } from "../simctl.js";
 import { renderFields, renderHelp, renderOutput, tildePath } from "../toon.js";
@@ -6,15 +7,22 @@ import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 
 export const INFO_HELP = `usage: xcodebuild-axi info [flags]
 Reports the toolchain this machine will build with.
-flags[2]:
+flags[3]:
   --sdks             list every installed SDK
   --platform <name>  filter the SDK list, e.g. iphoneos
+  --sdk <name>       everything about one SDK: its path, platform, and versions
+note:
+  --sdks answers "which SDKs are here", --sdk answers "where is this one and
+  what is in it" -- the paths a build script needs and the build version an
+  agent is asked to report. A canonical name (iphonesimulator27.0) or a bare
+  platform name (iphonesimulator) both work.
 examples:
   xcodebuild-axi info
   xcodebuild-axi info --sdks --platform iphonesimulator
+  xcodebuild-axi info --sdk iphonesimulator
 `;
 
-export const INFO_FLAGS = ["--sdks", "--platform"] as const;
+export const INFO_FLAGS = ["--sdks", "--platform", "--sdk"] as const;
 
 interface RawSdk {
   canonicalName?: string;
@@ -24,8 +32,21 @@ interface RawSdk {
   isBaseSdk?: boolean;
 }
 
+/** What `-version -sdk <name> -json` adds on top of the list entry. */
+interface FullSdk extends RawSdk {
+  platformPath?: string;
+  platformVersion?: string;
+  productBuildVersion?: string;
+  productName?: string;
+  productVersion?: string;
+  sdkPath?: string;
+}
+
 export async function infoCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "info", INFO_FLAGS, ["--platform"]);
+  rejectUnknownFlags(args, "info", INFO_FLAGS, ["--platform", "--sdk"]);
+
+  const named = getFlag(args, "--sdk");
+  if (named !== undefined) return reportSdk(named);
 
   const [version, developerDir, sdks, simulators] = await Promise.all([
     readVersion(),
@@ -83,6 +104,50 @@ export async function infoCommand(args: string[]): Promise<string> {
       ...(runtimes.length > 0 ? { runtimes } : {}),
     }),
     renderHelp(["Run `xcodebuild-axi info --sdks` to list the installed SDKs"]),
+  ]);
+}
+
+/**
+ * One SDK, in full.
+ *
+ * `xcodebuild -version -sdk <name> <infoitem>` answers one field per
+ * invocation and only if you already know the field names; the JSON form
+ * carries all of them, so this asks once and reports the lot.
+ */
+async function reportSdk(name: string): Promise<string> {
+  const { stdout } = await runMetadata(["-version", "-sdk", name, "-json"]);
+  const start = stdout.indexOf("[");
+  let parsed: FullSdk[] = [];
+  if (start !== -1) {
+    try {
+      parsed = JSON.parse(stdout.slice(start)) as FullSdk[];
+    } catch {
+      parsed = [];
+    }
+  }
+
+  const sdk = parsed[0];
+  if (!sdk) {
+    // xcodebuild exits *zero* for an SDK it cannot locate, so the absence of a
+    // payload is the only signal that the name was wrong.
+    throw new AxiError(`No SDK named '${name}'`, "NOT_FOUND", [
+      "Run `xcodebuild-axi info --sdks` to list the installed SDKs",
+    ]);
+  }
+
+  return renderOutput([
+    renderFields({
+      sdk: sdk.canonicalName ?? name,
+      ...(sdk.displayName ? { name: sdk.displayName } : {}),
+      ...(sdk.platform ? { platform: sdk.platform } : {}),
+      ...(sdk.sdkVersion ? { sdk_version: sdk.sdkVersion } : {}),
+      ...(sdk.productVersion ? { product_version: sdk.productVersion } : {}),
+      ...(sdk.productBuildVersion ? { build: sdk.productBuildVersion } : {}),
+      ...(sdk.sdkPath ? { path: tildePath(sdk.sdkPath) } : {}),
+      ...(sdk.platformPath
+        ? { platform_path: tildePath(sdk.platformPath) }
+        : {}),
+    }),
   ]);
 }
 

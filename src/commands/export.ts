@@ -10,8 +10,10 @@ import { join, resolve } from "node:path";
 import { AxiError, mapXcodebuildError } from "../errors.js";
 import {
   EXPORT_METHODS,
+  EXPORT_METHOD_ALIASES,
   exportOptionsPlist,
   readArchiveInfo,
+  type ExportOptions,
 } from "../archive.js";
 import {
   authArgs,
@@ -30,11 +32,48 @@ import {
   renderOutput,
   tildePath,
 } from "../toon.js";
-import { getFlag, hasFlag, positionals, rejectUnknownFlags } from "../args.js";
+import {
+  getFlag,
+  getListFlag,
+  hasFlag,
+  positionals,
+  rejectUnknownFlags,
+} from "../args.js";
+
+/**
+ * The flags that exist only to fill in a key of the generated options plist.
+ * Named as a group because `--options` supplies the whole plist itself, and
+ * silently ignoring these alongside it is how a release ships unsigned.
+ */
+const PLIST_FLAGS = [
+  "--profile",
+  "--certificate",
+  "--installer-certificate",
+  "--distribution-bundle-id",
+  "--keep-swift-symbols",
+  "--internal-only",
+  "--app-store-info",
+  "--icloud-env",
+  "--thinning",
+  "--manifest",
+  "--odr-base-url",
+  "--no-embed-odr",
+] as const;
+
+const PLIST_VALUE_FLAGS = [
+  "--profile",
+  "--certificate",
+  "--installer-certificate",
+  "--distribution-bundle-id",
+  "--icloud-env",
+  "--thinning",
+  "--manifest",
+  "--odr-base-url",
+] as const;
 
 export const EXPORT_HELP = `usage: xcodebuild-axi export <path.xcarchive> [flags]
 Exports a built archive into a distributable product.
-flags[15]:
+flags[27]:
   --method <name>         ${EXPORT_METHODS.join(", ")}
   --team <id>             Developer team ID to sign with
   --options <path>        a hand-written export options plist, instead of --method
@@ -46,14 +85,35 @@ flags[15]:
   --notarized             export an archive Apple has already notarized
   --allow-provisioning    let xcodebuild fetch profiles from the developer portal
   --signing-style <name>  manual or automatic
+  --profile <id>=<name>   provisioning profile per bundle id; repeatable (implies manual signing)
+  --certificate <name>    signing certificate name or SHA-1 (implies manual signing)
+  --installer-certificate <name>  installer certificate for a macOS package
+  --distribution-bundle-id <id>   which app to export, when the archive holds several
+  --keep-swift-symbols    do not strip Swift symbols from the export
+  --internal-only         mark a TestFlight build as internal testing only
+  --app-store-info        generate App Store information alongside the upload
+  --icloud-env <name>     Development or Production CloudKit containers
+  --thinning <variant>    none, thin-for-all-variants, or a device model id
+  --manifest <key>=<url>  appURL, displayImageURL, fullSizeImageURL; repeatable
+  --odr-base-url <url>    host the on-demand resource asset packs are served from
+  --no-embed-odr          do not embed on-demand resource asset packs in the bundle
 ${AUTH_FLAG_HELP}
 note:
   --method writes the export options plist for you, which is otherwise an XML
-  file you have to author by hand. Pass --options to supply your own instead.
+  file you have to author by hand. Pass --options to supply your own instead --
+  the flags that shape the plist are refused alongside it, rather than being
+  silently dropped.
   --upload is the difference between an .ipa on disk and a build in App Store
   Connect; with it there are no products to list, which is success, not an
   empty export. --no-manage-version matters whenever the build number is set
   at archive time, because Xcode otherwise picks its own at upload.
+  --profile and --certificate are manual signing, so they set --signing-style
+  manual when it was not asked for -- naming a profile and then letting Xcode
+  pick one is not a thing anyone means.
+  --manifest needs all three of appURL, displayImageURL and fullSizeImageURL;
+  a partial manifest exports without error and cannot be installed.
+  The Xcode 26 method names -- app-store, ad-hoc, development -- still work and
+  are reported as the current name they mean.
 examples:
   xcodebuild-axi export build/MyApp.xcarchive --method release-testing
   xcodebuild-axi export build/MyApp.xcarchive --method app-store-connect --team ABCDE12345
@@ -73,6 +133,7 @@ export const EXPORT_FLAGS = [
   "--notarized",
   "--allow-provisioning",
   "--signing-style",
+  ...PLIST_FLAGS,
   ...AUTH_FLAGS,
 ] as const;
 
@@ -83,6 +144,7 @@ export const EXPORT_VALUE_FLAGS = [
   "--output",
   "--artifacts-dir",
   "--signing-style",
+  ...PLIST_VALUE_FLAGS,
   ...AUTH_VALUE_FLAGS,
 ] as const;
 
@@ -109,7 +171,11 @@ export async function exportCommand(args: string[]): Promise<string> {
   }
 
   const notarized = hasFlag(args, "--notarized");
-  const method = getFlag(args, "--method");
+  const requested = getFlag(args, "--method");
+  const method =
+    requested === undefined
+      ? undefined
+      : (EXPORT_METHOD_ALIASES[requested] ?? requested);
   const optionsPath = getFlag(args, "--options");
 
   if (!notarized && method === undefined && optionsPath === undefined) {
@@ -135,15 +201,25 @@ export async function exportCommand(args: string[]): Promise<string> {
   }
 
   const uploading = hasFlag(args, "--upload");
-  if (uploading && optionsPath !== undefined) {
-    throw new AxiError(
-      "--upload has nothing to write to when --options supplies the plist",
-      "VALIDATION_ERROR",
-      [
-        "add `<key>destination</key><string>upload</string>` to your own plist",
-        "or drop --options and let --method write one",
-      ],
-    );
+  if (optionsPath !== undefined) {
+    const ignored = [
+      "--upload",
+      "--no-manage-version",
+      "--no-upload-symbols",
+      "--team",
+      "--signing-style",
+      ...PLIST_FLAGS,
+    ].filter((flag) => args.includes(flag));
+    if (ignored.length > 0) {
+      throw new AxiError(
+        `${ignored.join(", ")} ${ignored.length === 1 ? "has" : "have"} nothing to write to when --options supplies the plist`,
+        "VALIDATION_ERROR",
+        [
+          "put the key in your own plist, or drop --options and let --method write one",
+          "a flag that shapes the plist is refused here rather than silently dropped",
+        ],
+      );
+    }
   }
 
   const project = requireProject();
@@ -245,19 +321,174 @@ export async function exportCommand(args: string[]): Promise<string> {
 export function generatedPlistOptions(
   args: string[],
   method: string,
-): Parameters<typeof exportOptionsPlist>[0] {
+): ExportOptions {
   const team = getFlag(args, "--team");
-  const signingStyle = getFlag(args, "--signing-style");
+  const certificate = getFlag(args, "--certificate");
+  const profiles = keyValues(args, "--profile", "<bundle-id>=<profile>");
+  const manifest = manifestOf(args);
+  const installerCertificate = getFlag(args, "--installer-certificate");
+  const distributionBundleId = getFlag(args, "--distribution-bundle-id");
+  const icloud = icloudEnvironment(args);
+  const thinning = thinningOf(args);
+  const odrBaseURL = getFlag(args, "--odr-base-url");
+
+  // Naming a profile or a certificate *is* manual signing; letting Xcode pick
+  // one anyway is not a thing anyone means by it, and the export that results
+  // is signed with something other than what was asked for.
+  const signingStyle =
+    getFlag(args, "--signing-style") ??
+    (certificate !== undefined || Object.keys(profiles).length > 0
+      ? "manual"
+      : undefined);
+
   return {
     method,
     ...(hasFlag(args, "--upload") ? { destination: "upload" } : {}),
     ...(team !== undefined ? { teamID: team } : {}),
     ...(signingStyle !== undefined ? { signingStyle } : {}),
+    ...(certificate !== undefined ? { signingCertificate: certificate } : {}),
+    ...(installerCertificate !== undefined
+      ? { installerSigningCertificate: installerCertificate }
+      : {}),
+    ...(Object.keys(profiles).length > 0
+      ? { provisioningProfiles: profiles }
+      : {}),
+    ...(distributionBundleId !== undefined
+      ? { distributionBundleIdentifier: distributionBundleId }
+      : {}),
     ...(hasFlag(args, "--no-upload-symbols") ? { uploadSymbols: false } : {}),
+    ...(hasFlag(args, "--keep-swift-symbols")
+      ? { stripSwiftSymbols: false }
+      : {}),
     ...(hasFlag(args, "--no-manage-version")
       ? { manageAppVersionAndBuildNumber: false }
       : {}),
+    ...(hasFlag(args, "--internal-only")
+      ? { testFlightInternalTestingOnly: true }
+      : {}),
+    ...(hasFlag(args, "--app-store-info")
+      ? { generateAppStoreInformation: true }
+      : {}),
+    ...(icloud !== undefined ? { iCloudContainerEnvironment: icloud } : {}),
+    ...(thinning !== undefined ? { thinning } : {}),
+    ...(manifest !== undefined ? { manifest } : {}),
+    ...(hasFlag(args, "--no-embed-odr")
+      ? { embedOnDemandResourcesAssetPacksInBundle: false }
+      : {}),
+    ...(odrBaseURL !== undefined
+      ? { onDemandResourcesAssetPacksBaseURL: odrBaseURL }
+      : {}),
   };
+}
+
+/** `--flag KEY=VALUE`, repeatable, into the dict the plist wants. */
+function keyValues(
+  args: string[],
+  flag: string,
+  shape: string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of getListFlag(args, flag)) {
+    const split = entry.indexOf("=");
+    if (split <= 0) {
+      throw new AxiError(
+        `${flag} expects ${shape}, got '${entry}'`,
+        "VALIDATION_ERROR",
+        [`xcodebuild-axi export <path.xcarchive> ${flag} ${shape}`],
+      );
+    }
+    out[entry.slice(0, split)] = entry.slice(split + 1);
+  }
+  return out;
+}
+
+/** The three URLs an over-the-web install needs, and Xcode's optional fourth. */
+const MANIFEST_KEYS = [
+  "appURL",
+  "displayImageURL",
+  "fullSizeImageURL",
+  "assetPackManifestURL",
+] as const;
+
+/**
+ * A manifest missing one of its three required URLs exports without an error
+ * and produces a link that cannot install, which is the worst shape a failure
+ * can take: it fails on someone's device, later, silently.
+ */
+function manifestOf(args: string[]): Record<string, string> | undefined {
+  const manifest = keyValues(args, "--manifest", "<key>=<url>");
+  if (Object.keys(manifest).length === 0) return undefined;
+
+  const unknown = Object.keys(manifest).filter(
+    (key) => !MANIFEST_KEYS.includes(key as (typeof MANIFEST_KEYS)[number]),
+  );
+  if (unknown.length > 0) {
+    throw new AxiError(
+      `Unknown manifest key '${unknown[0]}'`,
+      "VALIDATION_ERROR",
+      [`valid keys: ${MANIFEST_KEYS.join(", ")}`],
+    );
+  }
+
+  if (
+    getFlag(args, "--odr-base-url") !== undefined &&
+    !("assetPackManifestURL" in manifest)
+  ) {
+    throw new AxiError(
+      "--manifest needs assetPackManifestURL when asset packs are hosted",
+      "VALIDATION_ERROR",
+      [
+        "xcodebuild requires that sub-key alongside --odr-base-url",
+        "--manifest assetPackManifestURL=https://example.com/AssetPackManifest.plist",
+      ],
+    );
+  }
+
+  const missing = MANIFEST_KEYS.slice(0, 3).filter((key) => !(key in manifest));
+  if (missing.length > 0) {
+    throw new AxiError(
+      `--manifest needs ${missing.join(", ")} as well`,
+      "VALIDATION_ERROR",
+      [
+        "all three of appURL, displayImageURL and fullSizeImageURL are required",
+        "a partial manifest exports without error and cannot be installed",
+      ],
+    );
+  }
+  return manifest;
+}
+
+const ICLOUD_ENVIRONMENTS = ["Development", "Production"] as const;
+
+/**
+ * The entitlement value is case-sensitive and the options "vary depending on
+ * the type of provisioning profile used", per xcodebuild's own help -- so fix
+ * the case of the two everybody means and pass anything else through rather
+ * than rejecting a value this tool cannot know is invalid.
+ */
+function icloudEnvironment(args: string[]): string | undefined {
+  const value = getFlag(args, "--icloud-env");
+  if (value === undefined) return undefined;
+  return (
+    ICLOUD_ENVIRONMENTS.find(
+      (name) => name.toLowerCase() === value.toLowerCase(),
+    ) ?? value
+  );
+}
+
+/**
+ * Xcode spells its two named thinning options with angle brackets around them
+ * -- `<none>` and `<thin-for-all-variants>` -- which is not a thing anyone
+ * types on purpose, and a device model identifier without. Accept both
+ * spellings of the named ones and pass a model through untouched.
+ */
+function thinningOf(args: string[]): string | undefined {
+  const value = getFlag(args, "--thinning");
+  if (value === undefined) return undefined;
+  const bare = value.replace(/^<|>$/g, "");
+  return bare === "none" || bare === "thin-for-all-variants"
+    ? `<${bare}>`
+    : value;
 }
 
 function writeGeneratedPlist(args: string[], method: string): string {
