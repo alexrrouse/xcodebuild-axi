@@ -166,8 +166,6 @@ function only(...via: readonly string[]): OptionCoverage {
 const gap = (command: string, why: string): Gap => ({ command, why });
 
 /** The gaps this file exists to make visible, phrased once and shared. */
-const NO_TARGET_MODE =
-  "resolves a scheme only, so target-mode projects cannot be asked";
 const CLEAN_IS_MINIMAL =
   "`clean` takes three flags today and xcodebuild accepts this one on a clean action";
 
@@ -180,16 +178,10 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
     also: ["export --allow-provisioning"],
   }),
   "-alltargets": everywhere("resolution", "--all-targets", {
-    missing: [gap("settings", NO_TARGET_MODE), gap("clean", CLEAN_IS_MINIMAL)],
+    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-arch": everywhere("resolution", "--arch", {
-    missing: [
-      gap(
-        "settings",
-        "architecture-dependent settings cannot be asked for one arch",
-      ),
-      gap("clean", CLEAN_IS_MINIMAL),
-    ],
+    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-architecture": only("platforms device-support --architecture"),
   "-archivePath": only("archive --archive-path", "export <path.xcarchive>"),
@@ -215,10 +207,6 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-derivedDataPath": everywhere("resolution", "--derived-data", {
     missing: [
       gap(
-        "settings",
-        "BUILT_PRODUCTS_DIR cannot be asked for the derived data a CI job uses",
-      ),
-      gap(
         "packages",
         "resolved packages land in derived data, which cannot be redirected",
       ),
@@ -228,10 +216,7 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
     missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-destination-timeout": everywhere("resolution", "--destination-timeout", {
-    missing: [
-      gap("settings", "resolves a device by name with no say over the wait"),
-      gap("clean", CLEAN_IS_MINIMAL),
-    ],
+    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-disableAutomaticPackageResolution": everywhere(
     "package",
@@ -344,7 +329,7 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-skipPackageUpdates": everywhere("package", "--skip-package-updates"),
   "-skipUnavailableActions": everywhere("build", "--skip-unavailable-actions"),
   "-target": everywhere("resolution", "--target", {
-    missing: [gap("settings", NO_TARGET_MODE), gap("clean", CLEAN_IS_MINIMAL)],
+    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-test-iterations": only("test --iterations"),
   "-test-repetition-relaunch-enabled": only("test --relaunch"),
@@ -355,20 +340,11 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-testRegion": only("test --region"),
   "-toolchain": everywhere("resolution", "--toolchain", {
     also: ["find --toolchain"],
-    missing: [
-      gap("settings", "settings cannot be resolved against a toolchain"),
-      gap("clean", CLEAN_IS_MINIMAL),
-    ],
+    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-version": only("info"),
   "-xcconfig": everywhere("resolution", "--xcconfig", {
-    missing: [
-      gap(
-        "settings",
-        "the overrides an xcconfig applies cannot be resolved before a build",
-      ),
-      gap("clean", CLEAN_IS_MINIMAL),
-    ],
+    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-xctestrun": only("test --xctestrun"),
   "-json": {
@@ -457,6 +433,16 @@ export const FORM_COVERAGE: Record<string, OptionCoverage> = {
     "platforms first-launch --check-updates",
   ),
   "-license check": only("platforms license"),
+  "<buildsetting>=<value>": {
+    status: "exposed",
+    on: [{ command: "settings", via: "settings --setting" }],
+    missing: [
+      gap(
+        "build",
+        "an override can be resolved but not built with, so `--setting` answers a question it cannot then act on",
+      ),
+    ],
+  },
   "-only-testing @<response-file>": only("test --only"),
   "-skip-testing @<response-file>": only("test --skip"),
   "-showBuildSettings -json": {

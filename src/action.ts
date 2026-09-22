@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { AxiError, mapXcodebuildError } from "./errors.js";
 import { requireProject, type ProjectContext } from "./context.js";
-import { requireScheme } from "./scheme.js";
+import { resolveSubject } from "./scheme.js";
 import { destinationSlug, resolveDestination } from "./destination.js";
 import { runBuild, type BuildRun } from "./xcodebuild.js";
 import { readBuildResults, toDiagnostics } from "./xcresult.js";
@@ -219,34 +219,19 @@ export async function resolveBuildContext(
   const { args, command } = options;
   const project = requireProject();
 
-  const targets = getListFlag(args, "--target");
-  const allTargets = hasFlag(args, "--all-targets");
-  const targetMode = targets.length > 0 || allTargets;
-
-  if (targetMode && project.kind === "workspace") {
-    // xcodebuild's own refusal here is "-target is not supported with
-    // -workspace", issued only after it has resolved the package graph.
-    throw new AxiError(
-      "--target and --all-targets work against a project, not a workspace",
-      "VALIDATION_ERROR",
-      [
-        "Pass `--scheme <name>` instead, or cd to the directory holding the .xcodeproj",
-      ],
-    );
-  }
-  if (targetMode && getFlag(args, "--scheme") !== undefined) {
-    throw new AxiError(
-      "--scheme and --target select different things to build, so only one can be used",
-      "VALIDATION_ERROR",
-      ["Drop one — a scheme already names the targets it builds"],
-    );
-  }
-
-  const scheme = targetMode
-    ? allTargets
-      ? "all targets"
-      : targets.join(",")
-    : await requireScheme(project, getFlag(args, "--scheme"), command);
+  const subject = await resolveSubject(
+    project,
+    {
+      ...(getFlag(args, "--scheme") !== undefined
+        ? { scheme: getFlag(args, "--scheme") as string }
+        : {}),
+      targets: getListFlag(args, "--target"),
+      allTargets: hasFlag(args, "--all-targets"),
+    },
+    command,
+  );
+  const scheme = subject.label;
+  const targetMode = subject.targetMode;
 
   const rawDestination = getFlag(args, "--destination");
   const device = getFlag(args, "--device");
@@ -300,11 +285,7 @@ export async function resolveBuildContext(
 
   const xcodebuildArgs = [
     ...project.flags,
-    ...(targetMode
-      ? allTargets
-        ? ["-alltargets"]
-        : targets.flatMap((target) => ["-target", target])
-      : ["-scheme", scheme]),
+    ...subject.flags,
     ...(destination ? ["-destination", destination.specifier] : []),
     ...(destinationTimeout !== undefined
       ? ["-destination-timeout", String(destinationTimeout)]

@@ -171,7 +171,7 @@ Every command takes `--help`.
 
 <!-- coverage:start -->
 
-**Coverage: 91.3% of the 160 leaves `xcodebuild` documents** — every option, build action, export options key, `-create-xcframework` argument, and the second forms that only a usage line mentions.
+**Coverage: 91.3% of the 161 leaves `xcodebuild` documents** — every option, build action, export options key, `-create-xcframework` argument, and the second forms that only a usage line mentions.
 
 A leaf is one switch you could type. Counting options alone says 100% (117/117), which was true and hid every gap below: an option is one thing, and `-exportOptionsPlist` alone opens eighteen more.
 
@@ -179,12 +179,12 @@ A leaf is one switch you could type. Counting options alone says 100% (117/117),
 | ------------------------------------------------------ | ------- | --------------- |
 | `xcodebuild -help` options                             | 117     | 117 (100%)      |
 | build actions                                          | 10      | 9 (90%)         |
-| second forms (`-version <infoitem>`, `-license check`) | 7       | 6 (85.7%)       |
+| second forms (`-version <infoitem>`, `-license check`) | 8       | 7 (87.5%)       |
 | `-exportOptionsPlist` keys                             | 18      | 6 (33.3%)       |
 | `-create-xcframework` options                          | 8       | 8 (100%)        |
-| **total**                                              | **160** | **146 (91.3%)** |
+| **total**                                              | **161** | **147 (91.3%)** |
 
-**Reach: 93.6%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 21 pairs are open.
+**Reach: 95.7%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 14 pairs are open.
 
 108 options map to an `xcodebuild-axi` flag. The other 9 are reachable without one:
 
@@ -214,75 +214,69 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Still open
 
-65 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
+59 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
 
-| Leaf                                                        | Unreachable from | What that costs                                                                               |
-| ----------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
-| `-alltargets`                                               | `settings`       | resolves a scheme only, so target-mode projects cannot be asked                               |
-| `-alltargets`                                               | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-arch`                                                     | `settings`       | architecture-dependent settings cannot be asked for one arch                                  |
-| `-arch`                                                     | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-derivedDataPath`                                          | `settings`       | BUILT_PRODUCTS_DIR cannot be asked for the derived data a CI job uses                         |
-| `-derivedDataPath`                                          | `packages`       | resolved packages land in derived data, which cannot be redirected                            |
-| `-destination`                                              | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-destination-timeout`                                      | `settings`       | resolves a device by name with no say over the wait                                           |
-| `-destination-timeout`                                      | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-only-testing`                                             | `tests`          | enumeration cannot be constrained the way the run that follows it is                          |
-| `-sdk`                                                      | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-skip-testing`                                             | `tests`          | enumeration cannot be constrained the way the run that follows it is                          |
-| `-target`                                                   | `settings`       | resolves a scheme only, so target-mode projects cannot be asked                               |
-| `-target`                                                   | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-toolchain`                                                | `settings`       | settings cannot be resolved against a toolchain                                               |
-| `-toolchain`                                                | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-xcconfig`                                                 | `settings`       | the overrides an xcconfig applies cannot be resolved before a build                           |
-| `-xcconfig`                                                 | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action             |
-| `-resultBundlePath`                                         | `clean`          | writes a result bundle the caller cannot redirect                                             |
-| `-quiet`                                                    | `clean`          | the clean log cannot be quieted                                                               |
-| `-verbose`                                                  | `clean`          | the clean log cannot be made verbose                                                          |
-| `-version -sdk <name> <infoitem>`                           | `info`           | `info --sdks` lists canonical names; an SDK's Path or ProductBuildVersion cannot be asked for |
-| `provisioningProfiles` (export options)                     | `export`         | manual signing can be asked for but not completed — the profile per executable has no flag    |
-| `signingCertificate` (export options)                       | `export`         | manual signing cannot name the certificate to sign with                                       |
-| `installerSigningCertificate` (export options)              | `export`         | a macOS installer package cannot name its signing certificate                                 |
-| `thinning` (export options)                                 | `export`         | non-App Store exports cannot be thinned for a device variant                                  |
-| `stripSwiftSymbols` (export options)                        | `export`         | Swift symbols are always stripped, with no way to keep them                                   |
-| `testFlightInternalTestingOnly` (export options)            | `export`         | a build cannot be marked internal-only, which is what a PR build wants                        |
-| `distributionBundleIdentifier` (export options)             | `export`         | an archive with several apps cannot pick which one to export                                  |
-| `generateAppStoreInformation` (export options)              | `export`         | App Store information cannot be generated for an upload                                       |
-| `iCloudContainerEnvironment` (export options)               | `export`         | a CloudKit app cannot choose the Development or Production container                          |
-| `manifest` (export options)                                 | `export`         | an over-the-web distribution manifest cannot be written                                       |
-| `embedOnDemandResourcesAssetPacksInBundle` (export options) | `export`         | on-demand resource asset packs cannot be embedded for testing                                 |
-| `onDemandResourcesAssetPacksBaseURL` (export options)       | `export`         | on-demand resource asset packs cannot be pointed at a host                                    |
-| `xcresulttool get test-results tests`                       | `result`         | the full test tree of a finished run cannot be listed                                         |
-| `xcresulttool get test-results activities`                  | `result`         | the step-by-step activity trail of a failing test cannot be read                              |
-| `xcresulttool get test-results insights`                    | `result`         | Xcode's own diagnosis of a run is left on the floor                                           |
-| `xcresulttool get test-results metrics`                     | `result`         | `test --perf-diagnostics` collects performance metrics nothing can read back                  |
-| `xcresulttool get log`                                      | `result`         | the build log inside the bundle is reachable only as the raw transcript file                  |
-| `xcresulttool get content-availability`                     | `result`         | whether a bundle even has coverage or test results is found out by failing to read it         |
-| `xcresulttool export diagnostics`                           | `result`         | `test --diagnostics` collects a diagnostics report that cannot be extracted                   |
-| `xcresulttool export attachments`                           | `result`         | UI test screenshots and attachments cannot be got out of the bundle                           |
-| `xcresulttool export metrics`                               | `result`         | performance measurements cannot be exported as CSV                                            |
-| `xcresulttool export evaluations`                           | `result`         | evaluation attachments cannot be exported                                                     |
-| `xcresulttool compare`                                      | `result`         | two runs cannot be diffed, which is the question CI asks most                                 |
-| `xcresulttool merge`                                        | `result`         | the bundles of a sharded test run cannot be combined                                          |
-| `xcresulttool metadata`                                     | `result`         | a bundle's own metadata cannot be read                                                        |
-| `xccov view --report --functions-for-file`                  | `coverage`       | coverage stops at the file, so the uncovered function has no name                             |
-| `xccov view --archive`                                      | `coverage`       | a standalone .xccovarchive cannot be read, only a result bundle                               |
-| `xccov view --file`                                         | `coverage`       | the per-line coverage of one file cannot be printed                                           |
-| `xccov diff`                                                | `coverage`       | 'did coverage drop' cannot be answered from two bundles this tool wrote                       |
-| `xccov merge`                                               | `coverage`       | the coverage of a sharded run cannot be combined                                              |
-| `simctl install`                                            | `sim`            | a built .app cannot be put on the simulator it was built for                                  |
-| `simctl launch`                                             | `sim`            | the app a build just produced cannot be run                                                   |
-| `simctl terminate`                                          | `?`              | a running app cannot be stopped                                                               |
-| `simctl uninstall`                                          | `?`              | an installed app cannot be removed                                                            |
-| `simctl listapps`                                           | `sim`            | what is installed on a simulator cannot be listed                                             |
-| `simctl create`                                             | `?`              | a missing device cannot be created                                                            |
-| `simctl delete`                                             | `sim`            | stale devices cannot be reclaimed, and they cost gigabytes                                    |
-| `simctl io`                                                 | `sim`            | a screenshot of a failing UI cannot be taken                                                  |
-| `simctl openurl`                                            | `sim`            | a deep link cannot be opened, which is how deep links are tested                              |
-| `simctl privacy`                                            | `sim`            | a permission prompt cannot be granted ahead of a UI test                                      |
-| `simctl push`                                               | `sim`            | a push notification cannot be simulated                                                       |
-| `simctl status_bar`                                         | `sim`            | the status bar cannot be pinned, which screenshot tests need                                  |
-| `simctl ui`                                                 | `sim`            | dark mode and content size cannot be set for a test run                                       |
+| Leaf                                                        | Unreachable from | What that costs                                                                                         |
+| ----------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `-alltargets`                                               | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-arch`                                                     | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-derivedDataPath`                                          | `packages`       | resolved packages land in derived data, which cannot be redirected                                      |
+| `-destination`                                              | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-destination-timeout`                                      | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-only-testing`                                             | `tests`          | enumeration cannot be constrained the way the run that follows it is                                    |
+| `-sdk`                                                      | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-skip-testing`                                             | `tests`          | enumeration cannot be constrained the way the run that follows it is                                    |
+| `-target`                                                   | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-toolchain`                                                | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-xcconfig`                                                 | `clean`          | `clean` takes three flags today and xcodebuild accepts this one on a clean action                       |
+| `-resultBundlePath`                                         | `clean`          | writes a result bundle the caller cannot redirect                                                       |
+| `-quiet`                                                    | `clean`          | the clean log cannot be quieted                                                                         |
+| `-verbose`                                                  | `clean`          | the clean log cannot be made verbose                                                                    |
+| `-version -sdk <name> <infoitem>`                           | `info`           | `info --sdks` lists canonical names; an SDK's Path or ProductBuildVersion cannot be asked for           |
+| `<buildsetting>=<value>`                                    | `build`          | an override can be resolved but not built with, so `--setting` answers a question it cannot then act on |
+| `provisioningProfiles` (export options)                     | `export`         | manual signing can be asked for but not completed — the profile per executable has no flag              |
+| `signingCertificate` (export options)                       | `export`         | manual signing cannot name the certificate to sign with                                                 |
+| `installerSigningCertificate` (export options)              | `export`         | a macOS installer package cannot name its signing certificate                                           |
+| `thinning` (export options)                                 | `export`         | non-App Store exports cannot be thinned for a device variant                                            |
+| `stripSwiftSymbols` (export options)                        | `export`         | Swift symbols are always stripped, with no way to keep them                                             |
+| `testFlightInternalTestingOnly` (export options)            | `export`         | a build cannot be marked internal-only, which is what a PR build wants                                  |
+| `distributionBundleIdentifier` (export options)             | `export`         | an archive with several apps cannot pick which one to export                                            |
+| `generateAppStoreInformation` (export options)              | `export`         | App Store information cannot be generated for an upload                                                 |
+| `iCloudContainerEnvironment` (export options)               | `export`         | a CloudKit app cannot choose the Development or Production container                                    |
+| `manifest` (export options)                                 | `export`         | an over-the-web distribution manifest cannot be written                                                 |
+| `embedOnDemandResourcesAssetPacksInBundle` (export options) | `export`         | on-demand resource asset packs cannot be embedded for testing                                           |
+| `onDemandResourcesAssetPacksBaseURL` (export options)       | `export`         | on-demand resource asset packs cannot be pointed at a host                                              |
+| `xcresulttool get test-results tests`                       | `result`         | the full test tree of a finished run cannot be listed                                                   |
+| `xcresulttool get test-results activities`                  | `result`         | the step-by-step activity trail of a failing test cannot be read                                        |
+| `xcresulttool get test-results insights`                    | `result`         | Xcode's own diagnosis of a run is left on the floor                                                     |
+| `xcresulttool get test-results metrics`                     | `result`         | `test --perf-diagnostics` collects performance metrics nothing can read back                            |
+| `xcresulttool get log`                                      | `result`         | the build log inside the bundle is reachable only as the raw transcript file                            |
+| `xcresulttool get content-availability`                     | `result`         | whether a bundle even has coverage or test results is found out by failing to read it                   |
+| `xcresulttool export diagnostics`                           | `result`         | `test --diagnostics` collects a diagnostics report that cannot be extracted                             |
+| `xcresulttool export attachments`                           | `result`         | UI test screenshots and attachments cannot be got out of the bundle                                     |
+| `xcresulttool export metrics`                               | `result`         | performance measurements cannot be exported as CSV                                                      |
+| `xcresulttool export evaluations`                           | `result`         | evaluation attachments cannot be exported                                                               |
+| `xcresulttool compare`                                      | `result`         | two runs cannot be diffed, which is the question CI asks most                                           |
+| `xcresulttool merge`                                        | `result`         | the bundles of a sharded test run cannot be combined                                                    |
+| `xcresulttool metadata`                                     | `result`         | a bundle's own metadata cannot be read                                                                  |
+| `xccov view --report --functions-for-file`                  | `coverage`       | coverage stops at the file, so the uncovered function has no name                                       |
+| `xccov view --archive`                                      | `coverage`       | a standalone .xccovarchive cannot be read, only a result bundle                                         |
+| `xccov view --file`                                         | `coverage`       | the per-line coverage of one file cannot be printed                                                     |
+| `xccov diff`                                                | `coverage`       | 'did coverage drop' cannot be answered from two bundles this tool wrote                                 |
+| `xccov merge`                                               | `coverage`       | the coverage of a sharded run cannot be combined                                                        |
+| `simctl install`                                            | `sim`            | a built .app cannot be put on the simulator it was built for                                            |
+| `simctl launch`                                             | `sim`            | the app a build just produced cannot be run                                                             |
+| `simctl terminate`                                          | `?`              | a running app cannot be stopped                                                                         |
+| `simctl uninstall`                                          | `?`              | an installed app cannot be removed                                                                      |
+| `simctl listapps`                                           | `sim`            | what is installed on a simulator cannot be listed                                                       |
+| `simctl create`                                             | `?`              | a missing device cannot be created                                                                      |
+| `simctl delete`                                             | `sim`            | stale devices cannot be reclaimed, and they cost gigabytes                                              |
+| `simctl io`                                                 | `sim`            | a screenshot of a failing UI cannot be taken                                                            |
+| `simctl openurl`                                            | `sim`            | a deep link cannot be opened, which is how deep links are tested                                        |
+| `simctl privacy`                                            | `sim`            | a permission prompt cannot be granted ahead of a UI test                                                |
+| `simctl push`                                               | `sim`            | a push notification cannot be simulated                                                                 |
+| `simctl status_bar`                                         | `sim`            | the status bar cannot be pinned, which screenshot tests need                                            |
+| `simctl ui`                                                 | `sim`            | dark mode and content size cannot be set for a test run                                                 |
 
 The denominator is read from `xcodebuild -help` rather than hand-maintained, and this table is written against **Xcode 27.0** — the option list moves between releases. `npm run coverage:check` fails on that Xcode if an option here is unclassified or has been dropped, and reports the difference without failing on any other.
 

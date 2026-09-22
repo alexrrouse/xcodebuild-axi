@@ -140,6 +140,9 @@ function openGaps(): string[] {
     rows.push(`| \`${option}\` | \`${command}\` | ${why} |`);
   }
 
+  // Two shapes of gap per map: a leaf nothing reaches (`missing`), and a leaf
+  // some commands reach and others do not (`exposed` with `missing` on it).
+  // Listing only the first is how a half-covered leaf stays invisible.
   const missingFrom = (
     map: Record<string, OptionCoverage>,
     label: (key: string) => string,
@@ -147,6 +150,9 @@ function openGaps(): string[] {
     for (const [key, entry] of Object.entries(map)) {
       if (entry.status !== "missing") continue;
       rows.push(`| ${label(key)} | \`${entry.from ?? "?"}\` | ${entry.why} |`);
+    }
+    for (const { option, command, why } of gaps(map)) {
+      rows.push(`| ${label(option)} | \`${command}\` | ${why} |`);
     }
   };
 
