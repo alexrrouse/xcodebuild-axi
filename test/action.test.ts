@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { artifactsDirFrom, buildPassthroughArgs } from "../src/action.js";
 import { AxiError } from "../src/errors.js";
+import { buildCommand } from "../src/commands/build.js";
 
 describe("build passthrough flags", () => {
   it("passes nothing when nothing is asked for", () => {
@@ -75,5 +76,18 @@ describe("artifacts dir", () => {
     expect(artifactsDirFrom(["--artifacts-dir", "build"])).toBe(
       join(process.cwd(), "build"),
     );
+  });
+});
+
+describe("build --install-src", () => {
+  // The refusal has to land before anything is resolved: installsrc copies
+  // gigabytes, and `--install-src --clean` is a sentence with two verbs in it.
+  it("refuses to copy sources and build in the same run", async () => {
+    await expect(buildCommand(["--install-src", "--clean"])).rejects.toThrow(
+      /not a build/,
+    );
+    await expect(
+      buildCommand(["--install-src", "--for-testing"]),
+    ).rejects.toThrow(/--for-testing/);
   });
 });

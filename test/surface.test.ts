@@ -219,9 +219,12 @@ describe("surface coverage map", () => {
     expect(counted.percent).toBe(66.7);
   });
 
-  it("covers every build action except installsrc", () => {
+  // Every action xcodebuild documents now reaches a command, installsrc
+  // included -- it is the leaf that took the headline number to 100%.
+  it("covers every build action", () => {
     const counts = tally(ACTION_COVERAGE);
-    expect(counts.na).toBe(1);
-    expect(ACTION_COVERAGE["installsrc"]?.status).toBe("n/a");
+    expect(counts.na).toBe(0);
+    expect(counts.missing).toBe(0);
+    expect(ACTION_COVERAGE["installsrc"]?.status).toBe("exposed");
   });
 });

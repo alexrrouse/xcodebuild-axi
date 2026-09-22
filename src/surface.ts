@@ -371,10 +371,7 @@ export const ACTION_COVERAGE: Record<string, OptionCoverage> = {
   docbuild: only("build --docs"),
   clean: only("clean"),
   install: only("build --install"),
-  installsrc: {
-    status: "n/a",
-    why: "copies sources into SRCROOT as root; a packaging step, not an agent loop",
-  },
+  installsrc: only("build --install-src"),
 };
 
 /**
