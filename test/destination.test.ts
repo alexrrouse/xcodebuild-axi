@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  answerLooksComplete,
   destinationSlug,
+  isPlaceholder,
   parseDestinationLine,
+  parseDestinations,
   pickDefault,
   type Destination,
 } from "../src/destination.js";
@@ -17,6 +20,7 @@ describe("parseDestinationLine", () => {
       id: "55D87B92-69D0-46C0-8EB0-DD68E2C5C103",
       os: "26.5",
       name: "iPad (A16)",
+      variant: "",
       eligible: true,
     });
   });
@@ -38,11 +42,78 @@ describe("parseDestinationLine", () => {
     expect(parsed?.id).toContain("placeholder");
   });
 
+  // The one value in a destination row that contains a comma, which is why the
+  // split is driven by the next `key:`.
+  it("keeps a variant containing a comma intact", () => {
+    const parsed = parseDestinationLine(
+      "{ platform:macOS, arch:arm64, variant:Designed for [iPad,iPhone], id:00008112-000539543488C01E, name:My Mac }",
+    );
+    expect(parsed?.variant).toBe("Designed for [iPad,iPhone]");
+    expect(parsed?.name).toBe("My Mac");
+  });
+
+  it("reads the plain macOS row as having no variant", () => {
+    expect(
+      parseDestinationLine(
+        "{ platform:macOS, arch:arm64, id:00008112-000539543488C01E, name:My Mac }",
+      )?.variant,
+    ).toBe("");
+  });
+
   it("ignores lines that are not destination rows", () => {
     expect(
       parseDestinationLine("Available destinations for the MyApp scheme:"),
     ).toBeUndefined();
     expect(parseDestinationLine("")).toBeUndefined();
+  });
+});
+
+describe("isPlaceholder", () => {
+  const row = (line: string): Destination => {
+    const parsed = parseDestinationLine(line);
+    if (parsed === undefined) throw new Error(`unparsed: ${line}`);
+    return parsed;
+  };
+
+  it("catches the id a project gives a placeholder", () => {
+    expect(
+      isPlaceholder(
+        row(
+          "{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  // A Swift package omits `id` entirely rather than spelling it "placeholder",
+  // which let "Any Mac" and "Any DriverKit Host" through on every package.
+  it("catches the missing id a Swift package gives one instead", () => {
+    expect(isPlaceholder(row("{ platform:macOS, name:Any Mac }"))).toBe(true);
+    expect(
+      isPlaceholder(
+        row("{ platform:macOS, variant:Mac Catalyst, name:Any Mac }"),
+      ),
+    ).toBe(true);
+    expect(
+      isPlaceholder(row("{ platform:DriverKit, name:Any DriverKit Host }")),
+    ).toBe(true);
+  });
+
+  it("leaves a real destination alone", () => {
+    expect(
+      isPlaceholder(
+        row(
+          "{ platform:iOS Simulator, arch:arm64, id:55D87B92-69D0-46C0-8EB0-DD68E2C5C103, OS:26.5, name:iPad (A16) }",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isPlaceholder(
+        row(
+          "{ platform:macOS, arch:arm64, variant:DriverKit, id:00008112-000539543488C01E, name:My Mac }",
+        ),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -64,6 +135,8 @@ describe("pickDefault", () => {
     name,
     os,
     id: `${name}-${os}`,
+    arch: "arm64",
+    variant: "",
     eligible: true,
   });
 
@@ -111,5 +184,80 @@ describe("pickDefault", () => {
       destination("watchOS Simulator", "Apple Watch", "26.5"),
     ]);
     expect(picked.name).toBe("Apple Watch");
+  });
+});
+
+describe("answerLooksComplete", () => {
+  const row = (platform: string, name: string): Destination => ({
+    platform,
+    name,
+    id: "00008112-000539543488C01E",
+    os: "",
+    arch: "arm64",
+    variant: "",
+    eligible: true,
+  });
+
+  it("accepts an answer that reached the simulators", () => {
+    expect(
+      answerLooksComplete(
+        [row("macOS", "My Mac"), row("iOS Simulator", "iPhone 17 Pro")],
+        0,
+      ),
+    ).toBe(true);
+  });
+
+  // The shape of the bug: xcodebuild stopped after the generic block, so the
+  // only thing left is the Mac. Trusted, that becomes "this scheme has no
+  // iPhone 17 Pro" for a scheme that does.
+  it("rejects an answer that never got past the Mac", () => {
+    expect(
+      answerLooksComplete(
+        [row("macOS", "My Mac"), row("DriverKit", "Any DriverKit Host")],
+        0,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects any answer from a probe that failed, however full", () => {
+    expect(
+      answerLooksComplete([row("iOS Simulator", "iPhone 17 Pro")], 74),
+    ).toBe(false);
+  });
+
+  it("rejects an empty answer", () => {
+    expect(answerLooksComplete([], 0)).toBe(false);
+  });
+
+  // A physical device is as good a sign the enumeration ran as a simulator is.
+  it("accepts an answer that reached a connected device", () => {
+    expect(answerLooksComplete([row("iOS", "Alex's iPhone")], 0)).toBe(true);
+  });
+});
+
+describe("parseDestinations", () => {
+  const transcript = [
+    '\tDestinations compatible with the "DesignSystem" scheme:',
+    "\t\t{ platform:macOS, arch:arm64, id:00008112-0005, name:My Mac }",
+    "\t\t{ platform:iOS Simulator, arch:arm64, id:55D8, OS:26.5, name:iPhone 17 Pro }",
+    "",
+    '\tIneligible destinations for the "DesignSystem" scheme:',
+    "\t\t{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }",
+    "\t\t{ platform:iOS Simulator, arch:arm64, id:9F9F, OS:18.0, name:iPhone 15 }",
+  ].join("\n");
+
+  it("splits the two headings and drops the placeholders", () => {
+    const parsed = parseDestinations(transcript);
+    expect(parsed.map((d) => [d.name, d.eligible])).toEqual([
+      ["My Mac", true],
+      ["iPhone 17 Pro", true],
+      ["iPhone 15", false],
+    ]);
+  });
+
+  it("finds nothing in a transcript that never listed a row", () => {
+    expect(
+      parseDestinations("Command line invocation:\nResolve Package Graph"),
+    ).toEqual([]);
   });
 });

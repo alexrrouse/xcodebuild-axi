@@ -6,6 +6,60 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- **A half-finished `-showdestinations` is no longer reported as a scheme with
+  no simulators.** Enumerating simulators and devices is a separate step from
+  listing a scheme's platforms, and it intermittently does not happen — most
+  reproducibly while another xcodebuild is finishing on the same machine. The
+  output then ends after the `My Mac` / `Any Mac` block with nothing saying
+  anything went wrong, and `--device "iPhone 17 Pro"` failed with
+  `Scheme 'X' has no destination named 'iPhone 17 Pro'` and
+  `available: My Mac, Any DriverKit Host, Any Mac` — for a scheme that lists it,
+  as the same command run a second later shows. That is the worst shape a wrong
+  answer can take, because the caller stops looking. An answer naming no
+  simulator and no physical device, or one from a probe that exited non-zero, is
+  now treated as unfinished and the probe is retried once. Seen in the wild as a
+  red PR gate on two of seven Swift packages, a different two each run.
+
+- **A destination that is listed but ineligible says so.** xcodebuild puts a
+  simulator whose runtime is missing, or a device that is not connected, under
+  its own heading; matching only the eligible rows turned that into
+  "has no destination named …", which sends the reader to check the spelling of
+  a name that was right.
+
+- **`destinations` no longer prints rows an agent cannot tell apart.**
+  xcodebuild lists macOS once per arch and once per variant, so one Mac came
+  back as four byte-identical `My Mac,macOS,""` rows — the arch and the
+  variant that distinguish them were never parsed, and `--device` takes a
+  name, so they were four ways of typing the same thing. They collapse to one
+  row, and the variants are named in `help[]` with the `--destination`
+  spelling that actually reaches them, which costs nothing on a scheme that
+  has none. A 23-row list for a plain Swift package came down to 17.
+
+- **Generic destinations no longer leak out of a Swift package.** Placeholders
+  were filtered by an id ending in `placeholder`, which is how a _project_
+  spells them; a package omits `id` entirely, so "Any Mac" and "Any DriverKit
+  Host" were listed as if they were runnable and were eligible for
+  `pickDefault` to choose. An absent id now counts as a placeholder too.
+
+- **`export` no longer leaves a temp directory behind on every run.** The
+  options plist it generates for you was written to a fresh `mkdtemp`
+  directory that nothing ever removed. It now lands beside the log and the
+  result bundle as `<archive>-ExportOptions.plist`, which is also where you
+  would look for it when a signing choice comes out wrong.
+
+### Notes
+
+- `build`, `analyze` and `archive` report the destination they resolved rather
+  than re-reading it from the result bundle the way `test` does. `AGENTS.md`
+  claimed the readback was universal; the udid already pins which device ran,
+  so the only real difference is that the platform is not named.
+
+- `tsconfig.json` turns on `noUnusedLocals`, `noUnusedParameters` and
+  `exactOptionalPropertyTypes`. The three things they found are fixed. Note
+  that `test/` is still outside the typechecked set.
+
 ## [0.1.14] - 2026-09-22
 
 ### Added
