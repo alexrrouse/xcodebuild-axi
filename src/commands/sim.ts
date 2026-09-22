@@ -611,10 +611,12 @@ async function remove(
   }
 
   if (hasFlag(args, "--all")) {
+    // Refused before anything is looked up, let alone deleted: a refusal that
+    // first spends a subprocess counting what it is about to refuse to touch
+    // is slower than the answer and no more useful.
     if (!hasFlag(args, "--yes")) {
-      const all = await listSimulators();
       throw new AxiError(
-        `--all would delete all ${all.length} simulators, which cannot be undone`,
+        "--all deletes every simulator on this machine, which cannot be undone",
         "VALIDATION_ERROR",
         [
           "Pass --yes as well if that is what you meant",
