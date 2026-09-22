@@ -551,21 +551,11 @@ export const XCFRAMEWORK_COVERAGE: Record<string, OptionCoverage> = {
   "-library": only("xcframework --library"),
   "-headers": only("xcframework --headers"),
   "-output": only("xcframework --output"),
-  "-archive": {
-    status: "missing",
-    from: "xcframework",
-    why: "the usual workflow — archive per platform, then bundle by framework name — is unreachable",
-  },
-  "-debug-symbols": {
-    status: "missing",
-    from: "xcframework",
-    why: "every xcframework this tool builds ships without dSYMs",
-  },
-  "-allow-internal-distribution": {
-    status: "missing",
-    from: "xcframework",
-    why: "an internal-only xcframework cannot be produced",
-  },
+  "-archive": only("xcframework --archive"),
+  "-debug-symbols": only("xcframework --debug-symbols"),
+  "-allow-internal-distribution": only(
+    "xcframework --allow-internal-distribution",
+  ),
   "-help": {
     status: "superseded",
     why: "`xcodebuild-axi xcframework --help`",

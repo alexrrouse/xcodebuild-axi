@@ -8,6 +8,23 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- `xcframework` takes `--archive`, `--debug-symbols` and
+  `--allow-internal-distribution`, which is the other half of
+  `-create-xcframework`. The workflow it was missing is the usual one: archive
+  once per platform, then bundle the slices by name out of those archives.
+  Without `--archive` the only way in was a path to a built product, which is
+  not what an archive-based build has.
+
+  `--debug-symbols` matters more than it looks. Every `.xcframework` this tool
+  produced until now shipped without dSYMs, so nothing built from one could be
+  symbolicated — a crash report from a binary distributed this way was
+  addresses and nothing else.
+
+- `--headers` and `--debug-symbols` now attach to the `--framework` or
+  `--library` they follow, the way xcodebuild reads them positionally. They
+  used to be paired by index, so headers given after the second library were
+  applied to the first.
+
 - Coverage is now measured along four axes instead of one, and `src/surface.ts`
   declares all four. The old number asked "does any command reach this
   option?", answered 100%, and hid every gap that has been found since — so it

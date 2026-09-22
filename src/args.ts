@@ -42,6 +42,38 @@ export function getListFlag(args: string[], name: string): string[] {
   return out.flatMap((v) => v.split(",")).filter((v) => v.length > 0);
 }
 
+/**
+ * Every occurrence of the named flags, in the order they were written.
+ *
+ * Order is meaning for a few xcodebuild options: `-headers` belongs to the
+ * `-library` before it and `-debug-symbols` to the slice before that, so a
+ * command that regrouped them by flag would pair the wrong ones together.
+ */
+export function orderedFlags(
+  args: string[],
+  names: readonly string[],
+): Array<{ flag: string; value: string }> {
+  const out: Array<{ flag: string; value: string }> = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === "--") break;
+
+    const equals = arg.indexOf("=");
+    const bare = equals < 0 ? arg : arg.slice(0, equals);
+    if (!names.includes(bare)) continue;
+
+    if (equals >= 0) {
+      out.push({ flag: bare, value: arg.slice(equals + 1) });
+      continue;
+    }
+    const value = args[i + 1];
+    if (value !== undefined) out.push({ flag: bare, value });
+    i++;
+  }
+  return out;
+}
+
 /** Read an integer flag, rejecting values that are not numbers. */
 export function getIntFlag(args: string[], name: string): number | undefined {
   const raw = getFlag(args, name);
