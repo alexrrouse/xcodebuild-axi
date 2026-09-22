@@ -8,6 +8,18 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- `settings` reaches the rest of what `-showBuildSettings` accepts:
+  `--target`, `--all-targets`, `--arch`, `--toolchain`, `--xcconfig`,
+  `--derived-data`, `--destination-timeout`, and `--setting KEY=VALUE`.
+
+  Seven of those were the last reach gaps on a read-only command, and each one
+  changes the answer rather than decorating it. `--target` and `--all-targets`
+  ask a project that has no scheme for the target; `--setting` and `--xcconfig`
+  answer "what would this be if I overrode that", which is the question
+  `-showBuildSettings` exists for; `--derived-data` matters because every build
+  path hangs off it, so the default answer describes a directory CI does not
+  use. Reach is 95.7% of 328 pairs, up from 93.6%.
+
 - A failing test now reports **where** it failed. The failures table gained
   `file` and `line` columns, in `test` and in `result` alike.
 
@@ -20,6 +32,24 @@ Notable changes to `xcodebuild-axi`. Versions follow
   These line numbers are one-based, unlike the zero-based ones in a build
   diagnostic's `sourceURL`; both are now documented where the code applies
   them, because an off-by-one here points at the line after the failure.
+
+### Fixed
+
+- `settings` no longer reports a **refusal** as an answer. xcodebuild rejects
+  some combinations — `-derivedDataPath` without a scheme is one — by exiting
+  non-zero and printing an empty JSON document, which parsed cleanly and came
+  back as every key `unset`. That reads exactly like a correct answer about a
+  target that has no such setting. The exit code is now checked and
+  xcodebuild's own one-line reason is reported.
+
+- A scheme that resolves no targets at all says so, instead of reporting every
+  key as `unset`. A Swift package's scheme is the common case: it answers
+  `-showBuildSettings` with an empty list and exit 0, so `--key SWIFT_VERSION`
+  came back as "not set" for a package where it plainly is.
+
+- A rerun hint after `--all-targets` said `--target all targets`, which is not
+  a command that runs. The selection now carries its own spelling rather than
+  having one guessed from its label.
 
 ## [0.1.8] - 2026-09-21
 

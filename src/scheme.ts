@@ -113,3 +113,78 @@ export async function requireScheme(
     ],
   );
 }
+
+/** What a command was asked to act on: a scheme, some targets, or all of them. */
+export interface Subject {
+  /** How to name it in a report — the scheme, the targets, or "all targets". */
+  label: string;
+  /** `-scheme X`, `-target A -target B`, or `-alltargets`. */
+  flags: string[];
+  /**
+   * The same selection spelled as this tool's own flags, for a rerun hint.
+   * Not derivable from `label`: "all targets" is prose, and a hint that says
+   * `--target all targets` is a command that does not run.
+   */
+  rerun: string;
+  /** True when targets were named instead of a scheme. */
+  targetMode: boolean;
+}
+
+/**
+ * Resolve `--scheme` / `--target` / `--all-targets` into what to pass and what
+ * to call it.
+ *
+ * Shared because the rules are xcodebuild's rather than any one command's:
+ * targets need a project, they cannot be combined with a scheme, and a scheme
+ * is inferred when the project has only one.
+ */
+export async function resolveSubject(
+  project: ProjectContext,
+  args: { scheme?: string; targets: string[]; allTargets: boolean },
+  command: string,
+): Promise<Subject> {
+  const targetMode = args.targets.length > 0 || args.allTargets;
+
+  if (targetMode && project.kind === "workspace") {
+    // xcodebuild's own refusal here is "-target is not supported with
+    // -workspace", issued only after it has resolved the package graph.
+    throw new AxiError(
+      "--target and --all-targets work against a project, not a workspace",
+      "VALIDATION_ERROR",
+      [
+        "Pass `--scheme <name>` instead, or cd to the directory holding the .xcodeproj",
+      ],
+    );
+  }
+  if (targetMode && args.scheme !== undefined) {
+    throw new AxiError(
+      "--scheme and --target select different things to build, so only one can be used",
+      "VALIDATION_ERROR",
+      ["Drop one — a scheme already names the targets it builds"],
+    );
+  }
+
+  if (targetMode) {
+    return args.allTargets
+      ? {
+          label: "all targets",
+          flags: ["-alltargets"],
+          rerun: "--all-targets",
+          targetMode,
+        }
+      : {
+          label: args.targets.join(","),
+          flags: args.targets.flatMap((target) => ["-target", target]),
+          rerun: args.targets.map((target) => `--target ${target}`).join(" "),
+          targetMode,
+        };
+  }
+
+  const scheme = await requireScheme(project, args.scheme, command);
+  return {
+    label: scheme,
+    flags: ["-scheme", scheme],
+    rerun: `--scheme ${scheme}`,
+    targetMode,
+  };
+}

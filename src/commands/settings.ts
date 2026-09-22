@@ -1,21 +1,35 @@
 import { AxiError } from "../errors.js";
 import { requireProject } from "../context.js";
-import { requireScheme } from "../scheme.js";
+import { resolveSubject } from "../scheme.js";
 import { resolveDestination } from "../destination.js";
 import { runMetadata } from "../xcodebuild.js";
 import { renderFields, renderHelp, renderList, renderOutput } from "../toon.js";
-import { getFlag, getListFlag, hasFlag, rejectUnknownFlags } from "../args.js";
+import {
+  getFlag,
+  getIntFlag,
+  getListFlag,
+  hasFlag,
+  rejectUnknownFlags,
+} from "../args.js";
 
 export const SETTINGS_HELP = `usage: xcodebuild-axi settings [flags]
 Reads resolved build settings. Asking for the keys you want turns a 40 KB dump
 into a few lines.
-flags[10]:
+flags[18]:
   --scheme <name>         scheme to resolve against (required only when the project has more than one)
+  --target <name>         resolve a target instead of a scheme; repeatable (project only)
+  --all-targets           resolve every target in the project (project only)
   --key <NAME>            setting to read; repeatable or comma-separated
   --configuration <name>  build configuration to resolve against
   --device <name>         resolve against a simulator or device by name, e.g. "iPhone 17 Pro"
   --destination <spec>    raw xcodebuild destination specifier, passed through untouched
+  --destination-timeout <secs>  how long to wait for the destination device
   --sdk <name>            base SDK to resolve against, e.g. iphonesimulator
+  --arch <arch>           architecture to resolve against; repeatable or comma-separated
+  --toolchain <name>      toolchain identifier or name
+  --xcconfig <path>       apply this file's settings as overrides before resolving
+  --derived-data <path>   derived data directory, which the build paths are under
+  --setting KEY=VALUE     override a setting before resolving; repeatable or comma-separated
   --all                   dump every setting (large — hundreds of keys)
   --for-index             the per-source-file settings an indexer sees
   --file <path>           with --for-index: the one source file to report on
@@ -26,12 +40,18 @@ note:
   the *device* SDK -- so BUILT_PRODUCTS_DIR comes back under Debug-iphoneos
   while build and test default to a simulator. The reported platform names
   what the answer is for.
+  --setting and --xcconfig answer "what would this be if I overrode that",
+  which is the question -showBuildSettings exists for. --derived-data matters
+  because every build path -- BUILT_PRODUCTS_DIR and everything under it --
+  hangs off it, so the default answer describes a directory CI does not use.
   --for-index answers a different question from the rest of this command: it
   reports the compiler invocation the indexer builds per source file. The raw
   payload measured 216 KB on a 12-scheme workspace, so without --file it
   reports only which targets have index settings and how many files each has.
 examples:
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER,MARKETING_VERSION
+  xcodebuild-axi settings --target MyApp --key SWIFT_VERSION
+  xcodebuild-axi settings --scheme MyApp --setting SWIFT_STRICT_CONCURRENCY=complete --key SWIFT_STRICT_CONCURRENCY
   xcodebuild-axi settings --scheme MyApp --key SWIFT_VERSION
   xcodebuild-axi settings --scheme MyApp --device "iPhone 17 Pro" --key BUILT_PRODUCTS_DIR
   xcodebuild-axi settings --scheme MyApp --for-index --file MyApp/AppFeature.swift
@@ -39,11 +59,19 @@ examples:
 
 export const SETTINGS_FLAGS = [
   "--scheme",
+  "--target",
+  "--all-targets",
   "--key",
   "--configuration",
   "--device",
   "--destination",
+  "--destination-timeout",
   "--sdk",
+  "--arch",
+  "--toolchain",
+  "--xcconfig",
+  "--derived-data",
+  "--setting",
   "--all",
   "--for-index",
   "--file",
@@ -51,11 +79,18 @@ export const SETTINGS_FLAGS = [
 ] as const;
 const VALUE_FLAGS = [
   "--scheme",
+  "--target",
   "--key",
   "--configuration",
   "--device",
   "--destination",
+  "--destination-timeout",
   "--sdk",
+  "--arch",
+  "--toolchain",
+  "--xcconfig",
+  "--derived-data",
+  "--setting",
   "--file",
 ] as const;
 
@@ -74,13 +109,37 @@ export async function settingsCommand(args: string[]): Promise<string> {
   }
 
   const project = requireProject();
-  const scheme = await requireScheme(
+  const subject = await resolveSubject(
     project,
-    getFlag(args, "--scheme"),
+    {
+      ...(getFlag(args, "--scheme") !== undefined
+        ? { scheme: getFlag(args, "--scheme") as string }
+        : {}),
+      targets: getListFlag(args, "--target"),
+      allTargets: hasFlag(args, "--all-targets"),
+    },
     "settings",
   );
+  const scheme = subject.label;
   const configuration = getFlag(args, "--configuration");
   const sdk = getFlag(args, "--sdk");
+  const toolchain = getFlag(args, "--toolchain");
+  const xcconfig = getFlag(args, "--xcconfig");
+  const derivedData = getFlag(args, "--derived-data");
+  const destinationTimeout = getIntFlag(args, "--destination-timeout");
+
+  const overrides = getListFlag(args, "--setting");
+  for (const setting of overrides) {
+    if (!setting.includes("=")) {
+      throw new AxiError(
+        `--setting expects KEY=VALUE, got '${setting}'`,
+        "VALIDATION_ERROR",
+        [
+          "xcodebuild-axi settings --setting SWIFT_VERSION=6 --key SWIFT_VERSION",
+        ],
+      );
+    }
+  }
 
   // Without a destination xcodebuild resolves against the default *device*
   // SDK, so BUILT_PRODUCTS_DIR and PLATFORM_NAME describe a build that
@@ -90,26 +149,71 @@ export async function settingsCommand(args: string[]): Promise<string> {
   // default answer does not move under anyone.
   const rawDestination = getFlag(args, "--destination");
   const device = getFlag(args, "--device");
-  const destination =
-    rawDestination !== undefined || device !== undefined
-      ? await resolveDestination({
-          project,
-          scheme,
-          ...(device !== undefined ? { device } : {}),
-          ...(rawDestination !== undefined ? { raw: rawDestination } : {}),
-        })
+  // Destinations are listed per scheme, so target mode has nothing to resolve
+  // a device *name* against — a whole specifier still passes through.
+  if (subject.targetMode && device !== undefined) {
+    throw new AxiError(
+      "--device is resolved against a scheme, and --target names no scheme",
+      "VALIDATION_ERROR",
+      [
+        "Pass the whole specifier instead: --destination 'platform=iOS Simulator,name=iPhone 17 Pro'",
+        "Or resolve against a scheme with `--scheme <name>`",
+      ],
+    );
+  }
+
+  const destination = subject.targetMode
+    ? rawDestination
+    : rawDestination !== undefined || device !== undefined
+      ? (
+          await resolveDestination({
+            project,
+            scheme,
+            ...(device !== undefined ? { device } : {}),
+            ...(rawDestination !== undefined ? { raw: rawDestination } : {}),
+          })
+        ).specifier
       : undefined;
 
-  const { stdout } = await runMetadata([
+  const { stdout, stderr, exitCode } = await runMetadata([
     ...project.flags,
-    "-scheme",
-    scheme,
+    ...subject.flags,
     ...(configuration ? ["-configuration", configuration] : []),
-    ...(destination ? ["-destination", destination.specifier] : []),
+    ...(destination ? ["-destination", destination] : []),
+    ...(destinationTimeout !== undefined
+      ? ["-destination-timeout", String(destinationTimeout)]
+      : []),
     ...(sdk ? ["-sdk", sdk] : []),
+    ...getListFlag(args, "--arch").flatMap((arch) => ["-arch", arch]),
+    ...(toolchain ? ["-toolchain", toolchain] : []),
+    ...(xcconfig ? ["-xcconfig", xcconfig] : []),
+    ...(derivedData ? ["-derivedDataPath", derivedData] : []),
     forIndex ? "-showBuildSettingsForIndex" : "-showBuildSettings",
     "-json",
+    // Overrides go last, the way xcodebuild reads `KEY=VALUE` arguments.
+    ...overrides,
   ]);
+
+  // A rejected combination of flags exits non-zero and still prints a JSON
+  // document -- an empty one. Parsing that and reporting every key as `unset`
+  // reads exactly like a correct answer about a target with no settings, so
+  // the refusal has to be surfaced rather than parsed past. xcodebuild
+  // rejects more combinations than this command can enumerate up front
+  // (`-derivedDataPath` without a scheme is one), so this is the general net.
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `xcodebuild could not resolve settings for ${subject.label}`,
+      "VALIDATION_ERROR",
+      [
+        ...xcodebuildComplaint(stderr),
+        ...(subject.targetMode
+          ? [
+              "Some options are only accepted alongside a scheme — try `--scheme <name>`",
+            ]
+          : []),
+      ],
+    );
+  }
 
   if (forIndex) {
     return reportIndexSettings(
@@ -123,15 +227,37 @@ export async function settingsCommand(args: string[]): Promise<string> {
   const settings = parseSettings(stdout);
 
   const platform = platformOf(settings);
+  // `scheme: MyApp` is a lie when targets were named, and the label is the
+  // reader's only clue about which question was answered.
+  const subjectField = subject.targetMode ? { targets: scheme } : { scheme };
 
   if (all) {
     return renderOutput([
       renderFields({
-        scheme,
+        ...subjectField,
         ...platform,
         settings: Object.keys(settings).length,
       }),
       renderFields({ ...settings }),
+    ]);
+  }
+
+  // xcodebuild answers `[]` -- exit 0, no targets -- when nothing in the
+  // scheme is buildable for the destination it resolved against. Running the
+  // per-key loop over that reports every key as `unset`, which is the same
+  // answer as a key that genuinely is not set, so the two have to be told
+  // apart before the loop rather than inside it.
+  if (Object.keys(settings).length === 0) {
+    return renderOutput([
+      renderFields({
+        ...subjectField,
+        settings: "none — xcodebuild resolved no targets to read settings from",
+      }),
+      renderHelp([
+        "-showBuildSettings answers with an empty list rather than an error, so this is not a failure",
+        "A Swift package's scheme resolves nothing here at all; a project scheme with no buildable for the resolved platform does the same",
+        `Run \`xcodebuild-axi settings ${subject.rerun} --destination <spec>\` to resolve against another platform`,
+      ]),
     ]);
   }
 
@@ -143,7 +269,7 @@ export async function settingsCommand(args: string[]): Promise<string> {
     else found[key] = value;
   }
 
-  const blocks = [renderFields({ scheme, ...platform })];
+  const blocks = [renderFields({ ...subjectField, ...platform })];
 
   if (Object.keys(found).length > 0) {
     blocks.push(renderFields({ settings: found }));
@@ -152,15 +278,27 @@ export async function settingsCommand(args: string[]): Promise<string> {
   if (missing.length > 0) {
     // A key that does not exist is an answer, not an error — say so plainly
     // rather than returning an empty block the agent has to re-query to trust.
-    blocks.push(renderFields({ unset: missing.join(",") }));
+    blocks.push(renderFields({ unset: missing }));
     blocks.push(
       renderHelp([
-        `Run \`xcodebuild-axi settings --scheme ${scheme} --all\` to see every key this scheme resolves`,
+        `Run \`xcodebuild-axi settings ${subject.rerun} --all\` to see every key this resolves`,
       ]),
     );
   }
 
   return renderOutput(blocks);
+}
+
+/**
+ * xcodebuild's own one-line reason, which names the flag it objected to and is
+ * more specific than anything this command could infer from the arguments.
+ */
+export function xcodebuildComplaint(stderr: string): string[] {
+  const line = stderr
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith("xcodebuild: error:"));
+  return line ? [line.replace(/^xcodebuild: error:\s*/, "")] : [];
 }
 
 /**

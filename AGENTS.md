@@ -166,6 +166,18 @@ remove that fallback believing the bundle is always sufficient; it is not.
   fails with "If you specify a workspace then you must also specify a scheme"
   only after loading the whole workspace, so `packages --resolve` resolves one
   up front.
+- **`-showBuildSettings` answers an impossible question with `[]`, not an
+  error.** A Swift package's scheme resolves no targets through xcodebuild at
+  all, and a project scheme with nothing buildable for the resolved platform
+  does the same — exit 0, empty JSON array. Reading keys out of that reports
+  every one of them as unset, which is the same answer as a key that really is
+  unset, so `settings` tells the two apart before it looks for keys.
+- **A rejected flag combination also prints an empty JSON document.**
+  `-derivedDataPath` without `-scheme`, `-testProductsPath` or `-xctestrun` is
+  the one that turned up: it exits non-zero, complains on stderr, and still
+  emits parseable stdout. Any command reading `runMetadata` output has to check
+  `exitCode` first; the payload alone cannot distinguish a refusal from a
+  result.
 - **`-showBuildSettingsForIndex` is a different query, not a variant.** It
   returns `{target: {sourceFile: {indexSettings}}}` — the compiler invocation
   per source file, including the entire Swift driver command line. Measured
