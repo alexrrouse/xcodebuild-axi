@@ -6,6 +6,8 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-09-21
+
 ### Added
 
 - **`sim` sets up the state a UI test needs.** `privacy`, `push`,
@@ -523,7 +525,8 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.11...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.8...v0.1.9
