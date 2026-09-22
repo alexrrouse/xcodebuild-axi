@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AxiError } from "./errors.js";
 
 /** `simctl` reads and mutations, wrapped so failures arrive structured. */
@@ -132,4 +135,88 @@ export function findSimulator(
   return simulators.find((simulator) =>
     simulator.name.toLowerCase().includes(wanted),
   );
+}
+
+/** One app installed on a simulator, as `listapps` describes it. */
+export interface InstalledApp {
+  bundleId: string;
+  name: string;
+  version: string;
+  build: string;
+  type: string;
+  path: string;
+}
+
+interface RawApp {
+  ApplicationType?: string;
+  CFBundleDisplayName?: string;
+  CFBundleName?: string;
+  CFBundleShortVersionString?: string;
+  CFBundleVersion?: string | number;
+  Path?: string;
+}
+
+/**
+ * What is installed on a simulator.
+ *
+ * `simctl listapps` prints an old-style NeXTSTEP plist rather than JSON --
+ * `-j` is not offered here -- so it goes through `plutil` to become readable.
+ * A typical device answers with 46 apps of which two are the developer's; the
+ * rest are Apple's, which is why the caller filters by type.
+ */
+export async function listApps(udid: string): Promise<InstalledApp[]> {
+  const { stdout, stderr, exitCode } = await simctl(["listapps", udid]);
+  if (exitCode !== 0) {
+    throw new AxiError("Could not list the apps on that simulator", "UNKNOWN", [
+      stderr.trim().split("\n")[0] ?? "",
+    ]);
+  }
+
+  const parsed = await plistToJson(stdout);
+  return Object.entries(parsed).map(([bundleId, app]) => ({
+    bundleId,
+    name: app.CFBundleDisplayName ?? app.CFBundleName ?? bundleId,
+    version: app.CFBundleShortVersionString ?? "",
+    build: app.CFBundleVersion === undefined ? "" : String(app.CFBundleVersion),
+    type: (app.ApplicationType ?? "unknown").toLowerCase(),
+    path: app.Path ?? "",
+  }));
+}
+
+function plistToJson(text: string): Promise<Record<string, RawApp>> {
+  // Through a file rather than a pipe: `plutil` reads stdin only as `-`, and
+  // feeding it a multi-megabyte plist that way deadlocks against its own
+  // output on some runs.
+  const dir = mkdtempSync(join(tmpdir(), "axi-listapps-"));
+  const file = join(dir, "apps.plist");
+  writeFileSync(file, text);
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "plutil",
+      ["-convert", "json", "-o", "-", file],
+      { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
+      (error, stdout) => {
+        if (error) {
+          rejectPromise(
+            new AxiError(
+              "simctl described the installed apps in a format that could not be read",
+              "UNKNOWN",
+            ),
+          );
+          return;
+        }
+        try {
+          resolvePromise(JSON.parse(stdout) as Record<string, RawApp>);
+        } catch {
+          rejectPromise(
+            new AxiError(
+              "simctl described the installed apps in a format that could not be read",
+              "UNKNOWN",
+            ),
+          );
+        }
+      },
+    );
+  });
 }

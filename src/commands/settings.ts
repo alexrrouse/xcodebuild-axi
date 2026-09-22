@@ -428,7 +428,7 @@ function relativeToCwd(path: string): string {
  * with a `buildSettings` map. Later targets win on collision, which matches
  * the order xcodebuild itself resolves them in.
  */
-function parseSettings(stdout: string): Record<string, string> {
+export function parseSettings(stdout: string): Record<string, string> {
   const start = stdout.indexOf("[");
   if (start === -1) return {};
   let parsed: { buildSettings?: Record<string, string> }[];
