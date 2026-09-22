@@ -24,10 +24,11 @@ import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 export const PACKAGES_HELP = `usage: xcodebuild-axi packages [flags]
 Reports the Swift package versions this project is pinned to, read straight
 from Package.resolved — no build, no subprocess.
-flags[17]:
+flags[18]:
   --resolve               actually resolve dependencies first (network, slow)
   --filter <text>         only packages whose identity contains this
   --scheme <name>         with --resolve against a workspace: the scheme to resolve for
+  --derived-data <path>   with --resolve: derived data directory to resolve into
 ${PACKAGE_FLAG_HELP}
 note:
   The resolution flags only matter alongside --resolve; reading the pins is a
@@ -42,9 +43,15 @@ export const PACKAGES_FLAGS = [
   "--resolve",
   "--filter",
   "--scheme",
+  "--derived-data",
   ...PACKAGE_FLAGS,
 ] as const;
-const VALUE_FLAGS = ["--filter", "--scheme", ...PACKAGE_VALUE_FLAGS] as const;
+const VALUE_FLAGS = [
+  "--filter",
+  "--scheme",
+  "--derived-data",
+  ...PACKAGE_VALUE_FLAGS,
+] as const;
 
 export async function packagesCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "packages", PACKAGES_FLAGS, VALUE_FLAGS);
@@ -53,11 +60,14 @@ export async function packagesCommand(args: string[]): Promise<string> {
   const blocks: string[] = [];
 
   if (hasFlag(args, "--resolve")) {
-    // xcodebuild refuses `-resolvePackageDependencies -workspace` without a
-    // scheme, and says so only after loading the whole workspace. Resolve one
-    // up front — `requireScheme` picks it automatically when there is only one.
+    // Two reasons xcodebuild needs a scheme named up front: it refuses
+    // `-resolvePackageDependencies -workspace` without one and says so only
+    // after loading the whole workspace, and it refuses `-derivedDataPath`
+    // without one at all. `requireScheme` picks it when there is only one, so
+    // neither refusal has to reach the caller.
+    const derivedData = getFlag(args, "--derived-data");
     const scheme =
-      project.kind === "workspace"
+      project.kind === "workspace" || derivedData !== undefined
         ? await requireScheme(
             project,
             getFlag(args, "--scheme"),
@@ -70,6 +80,7 @@ export async function packagesCommand(args: string[]): Promise<string> {
         ...project.flags,
         ...(scheme ? ["-scheme", scheme] : []),
         "-resolvePackageDependencies",
+        ...(derivedData ? ["-derivedDataPath", derivedData] : []),
         ...packageArgs(args),
       ],
       label: `${project.name}-resolve`,

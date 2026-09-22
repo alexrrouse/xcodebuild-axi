@@ -67,6 +67,17 @@ const patterns: ErrorPattern[] = [
     ],
   },
   {
+    pattern: /Building a Swift package requires that a destination is provided/,
+    code: "DESTINATION_NOT_FOUND",
+    message: () =>
+      "A Swift package has no default destination, so xcodebuild needs one named",
+    suggestions: () => [
+      'Pass a simulator by name: `--device "iPhone 17 Pro"`',
+      "Or a whole specifier: `--destination 'platform=macOS'`",
+      "Run `xcodebuild-axi destinations` to see what this package supports",
+    ],
+  },
+  {
     pattern: /xcodebuild: error: (.+)/,
     code: "UNKNOWN",
     message: (m) => (m[1] ?? "").trim(),

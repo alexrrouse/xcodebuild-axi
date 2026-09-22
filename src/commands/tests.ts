@@ -8,6 +8,7 @@ import {
   runLabel,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
+  subjectField,
 } from "../action.js";
 import { artifactDir } from "../xcodebuild.js";
 import {
@@ -18,20 +19,32 @@ import {
   renderOutput,
   tildePath,
 } from "../toon.js";
-import { getFlag, getIntFlag, hasFlag, rejectUnknownFlags } from "../args.js";
+import {
+  getFlag,
+  getIntFlag,
+  getListFlag,
+  hasFlag,
+  rejectUnknownFlags,
+} from "../args.js";
 
 export const TESTS_HELP = `usage: xcodebuild-axi tests [flags]
 Lists the tests a scheme would run, without running them. Grouped by suite,
 because a thousand identifiers is not an answer.
-flags[46]:
+flags[48]:
 ${BUILD_FLAG_HELP}
   --test-plan <name>  test plan to enumerate
+  --only <id>         enumerate only this test/class/target; repeatable or comma-separated
+  --skip <id>         leave this test/class/target out; repeatable or comma-separated
   --filter <text>     only suites or tests whose identifier contains this
   --list              print every test identifier instead of per-suite counts
   --max <n>           rows to list before summarizing the rest (default: 40)
 note:
   Enumerating compiles the test bundle, so the first run is as slow as a build.
   It is still far cheaper than running the tests to find out what they are.
+  --only and --skip are xcodebuild's own selection, applied before the tests are
+  enumerated, so the answer is the list 'test' would run with the same flags.
+  --filter is this tool's, applied to the result -- cheaper to change, but it
+  cannot tell you what a selection would actually pick.
 examples:
   xcodebuild-axi tests --scheme MyApp
   xcodebuild-axi tests --scheme MyApp --filter AppFeature --list
@@ -40,6 +53,8 @@ examples:
 export const TESTS_FLAGS = [
   ...SHARED_BUILD_FLAGS,
   "--test-plan",
+  "--only",
+  "--skip",
   "--filter",
   "--list",
   "--max",
@@ -47,6 +62,8 @@ export const TESTS_FLAGS = [
 const VALUE_FLAGS = [
   ...SHARED_BUILD_VALUE_FLAGS,
   "--test-plan",
+  "--only",
+  "--skip",
   "--filter",
   "--max",
 ] as const;
@@ -81,6 +98,8 @@ export async function testsCommand(args: string[]): Promise<string> {
     actions: ["test"],
     extraArgs: [
       ...(testPlan ? ["-testPlan", testPlan] : []),
+      ...getListFlag(args, "--only").flatMap((id) => ["-only-testing", id]),
+      ...getListFlag(args, "--skip").flatMap((id) => ["-skip-testing", id]),
       "-enumerate-tests",
       "-test-enumeration-format",
       "json",
@@ -127,8 +146,8 @@ export async function testsCommand(args: string[]): Promise<string> {
     return renderOutput([
       renderFields({
         tests: filter
-          ? `0 tests match '${getFlag(args, "--filter")}' in scheme ${context.scheme}`
-          : `0 tests in scheme ${context.scheme}`,
+          ? `0 tests match '${getFlag(args, "--filter")}' in ${context.scheme}`
+          : `0 tests in ${context.scheme}`,
       }),
       renderHelp([
         "Run `xcodebuild-axi tests` without --filter to see every suite",
@@ -138,7 +157,7 @@ export async function testsCommand(args: string[]): Promise<string> {
 
   const blocks = [
     renderFields({
-      scheme: context.scheme,
+      ...subjectField(context),
       tests: identifiers.length,
       ...(disabled.length > 0 ? { disabled: disabled.length } : {}),
       duration: duration(run.seconds),
@@ -178,7 +197,7 @@ export async function testsCommand(args: string[]): Promise<string> {
     blocks.push(
       renderHelp([
         "Run `xcodebuild-axi tests --list` to see individual test identifiers",
-        `Run \`xcodebuild-axi test --scheme ${context.scheme} --only <suite>\` to run one suite`,
+        `Run \`xcodebuild-axi test ${context.subject.rerun} --only <suite>\` to run one suite`,
       ]),
     );
   }

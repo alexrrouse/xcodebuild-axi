@@ -8,6 +8,25 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- **Reach is 100%.** Every option xcodebuild accepts on a command is now
+  reachable from that command, all 328 pairs, where the last release reached
+  95.7%.
+
+  - `clean` takes the same subject and scoping flags a build does: `--target`,
+    `--all-targets`, `--destination`, `--device`, `--destination-timeout`,
+    `--sdk`, `--arch`, `--toolchain`, `--xcconfig`, `--artifacts-dir` and
+    `--log-level`, on top of the three it had. A clean is scoped by the same
+    things a build is, and a `clean` that cannot say _which_ products to remove
+    is a command an agent has to leave for the raw tool.
+  - `tests --only` and `--skip` constrain the enumeration itself, so the answer
+    is the list `test` would run with the same flags rather than a list this
+    tool filtered afterwards. `--filter` still does the latter, and the help now
+    says which is which.
+  - `packages --resolve --derived-data <path>` puts the resolved checkouts
+    where CI can cache them. xcodebuild takes `-derivedDataPath` here only
+    alongside a scheme, so one is resolved up front rather than letting the
+    refusal reach the caller.
+
 - `settings` reaches the rest of what `-showBuildSettings` accepts:
   `--target`, `--all-targets`, `--arch`, `--toolchain`, `--xcconfig`,
   `--derived-data`, `--destination-timeout`, and `--setting KEY=VALUE`.
@@ -18,7 +37,7 @@ Notable changes to `xcodebuild-axi`. Versions follow
   answer "what would this be if I overrode that", which is the question
   `-showBuildSettings` exists for; `--derived-data` matters because every build
   path hangs off it, so the default answer describes a directory CI does not
-  use. Reach is 95.7% of 328 pairs, up from 93.6%.
+  use.
 
 - A failing test now reports **where** it failed. The failures table gained
   `file` and `line` columns, in `test` and in `result` alike.
@@ -34,6 +53,22 @@ Notable changes to `xcodebuild-axi`. Versions follow
   them, because an off-by-one here points at the line after the failure.
 
 ### Fixed
+
+- Reports on a target-mode run said `scheme: all targets`, which names
+  something that does not exist. Every command in the build family now reports
+  `targets:` when targets were what was asked for, and the run's log and
+  `.xcresult` are named `all-targets-…` rather than with a space in the path.
+
+- A failure xcodebuild refused outright reported `xcodebuild encountered an
+error (70)` and nothing else. That string is what the result bundle records
+  when nothing was built, and the transcript fallback only ran when the bundle
+  listed _no_ errors — so a bundle with one useless error row suppressed the
+  one explanation available. A bundle carrying only that row is now treated as
+  the empty answer it is.
+
+- A Swift package asked to build with no destination now says so in its own
+  terms. xcodebuild's refusal points at `-showdestinations`, which is not
+  something this tool asks anyone to run.
 
 - `settings` no longer reports a **refusal** as an answer. xcodebuild rejects
   some combinations — `-derivedDataPath` without a scheme is one — by exiting

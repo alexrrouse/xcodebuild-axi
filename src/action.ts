@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { AxiError, mapXcodebuildError } from "./errors.js";
 import { requireProject, type ProjectContext } from "./context.js";
-import { resolveSubject } from "./scheme.js";
+import { resolveSubject, type Subject } from "./scheme.js";
 import { destinationSlug, resolveDestination } from "./destination.js";
 import { runBuild, type BuildRun } from "./xcodebuild.js";
 import { readBuildResults, toDiagnostics } from "./xcresult.js";
@@ -196,6 +196,8 @@ export interface BuildContext {
   project: ProjectContext;
   /** The scheme, or a description of the targets when in target mode. */
   scheme: string;
+  /** What was selected, and how to name, spell and file it. */
+  subject: Subject;
   /** Human-readable destination, or undefined when the command skipped one. */
   destination: string | undefined;
   /** Everything before the action word. */
@@ -324,6 +326,7 @@ export async function resolveBuildContext(
   return {
     project,
     scheme,
+    subject,
     destination: destination?.described,
     xcodebuildArgs,
     maxErrors: getIntFlag(args, "--max-errors") ?? 20,
@@ -344,12 +347,22 @@ export function artifactsDirFrom(args: string[]): string | undefined {
   return dir === undefined ? undefined : resolve(dir);
 }
 
+/**
+ * `scheme: all targets` is a lie, and the reader's only clue about which
+ * question was answered. Every report that names the subject goes through here.
+ */
+export function subjectField(context: BuildContext): Record<string, string> {
+  return context.subject.targetMode
+    ? { targets: context.scheme }
+    : { scheme: context.scheme };
+}
+
 /** A filesystem stem that distinguishes runs of different commands and devices. */
 export function runLabel(context: BuildContext, command: string): string {
   const device = context.destination
     ? `-${destinationSlug(context.destination)}`
     : "";
-  return `${context.scheme}${device}-${command}`;
+  return `${context.subject.slug}${device}-${command}`;
 }
 
 export interface RunActionOptions {
@@ -390,6 +403,18 @@ export interface ReportActionOptions {
 }
 
 /**
+ * "xcodebuild encountered an error (70)" is what a bundle records when
+ * xcodebuild refused before doing anything. It is an error row rather than an
+ * empty list, so a guard that only looks for emptiness prints the exit code as
+ * though it were the diagnosis and never reads the transcript that has one.
+ */
+function isGenericFailure(diagnostic: { message: string }): boolean {
+  return /^xcodebuild encountered an error \(\d+\)$/.test(
+    diagnostic.message.trim(),
+  );
+}
+
+/**
  * The shared report for any action that compiles something.
  *
  * Errors are the payload on failure, warnings on success, and the full
@@ -409,10 +434,11 @@ export async function reportAction(
   ]);
   const succeeded = run.exitCode === 0;
 
-  // A bundle that records no error for a nonzero exit means xcodebuild died
-  // before it built anything — a bad scheme, an unmatched destination, a
+  // A bundle that records no *usable* error for a nonzero exit means xcodebuild
+  // died before it built anything — a bad scheme, an unmatched destination, a
   // missing signing team. The transcript is the only witness.
-  if (!succeeded && errors.length === 0) {
+  const unexplained = errors.length === 0 || errors.every(isGenericFailure);
+  if (!succeeded && unexplained) {
     const mapped = mapXcodebuildError(run.tail);
     if (mapped) {
       throw new AxiError(mapped.message, mapped.code, [
@@ -425,7 +451,7 @@ export async function reportAction(
   const blocks: string[] = [
     renderFields({
       [options.key]: succeeded ? options.ok : "failed",
-      scheme: context.scheme,
+      ...subjectField(context),
       ...(context.destination ? { destination: context.destination } : {}),
       duration: duration(run.seconds),
       ...(options.extra ?? {}),
@@ -461,7 +487,7 @@ export async function reportAction(
     blocks.push(renderFields({ warnings: 0 }));
   }
 
-  if (!succeeded && errors.length === 0) {
+  if (!succeeded && unexplained) {
     const tail = transcriptTail(run.tail);
     if (tail) blocks.push(tail);
   }

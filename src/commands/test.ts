@@ -5,6 +5,7 @@ import {
   runAction,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
+  subjectField,
   type BuildContext,
 } from "../action.js";
 import {
@@ -275,7 +276,7 @@ async function renderTestsNeverRan(
     renderFields({
       test: "failed",
       reason: "the build failed, so no test ran",
-      scheme: context.scheme,
+      ...subjectField(context),
       ...(context.destination ? { destination: context.destination } : {}),
       duration: duration(run.seconds),
     }),
@@ -332,7 +333,7 @@ async function renderTestSummary(
   const blocks: string[] = [
     renderFields({
       test: succeeded ? "passed" : "failed",
-      scheme: context.scheme,
+      ...subjectField(context),
       destination: landed,
       // Slash-separated, not comma-separated: TOON quotes any scalar
       // containing a comma, and the quotes cost more than the commas saved.

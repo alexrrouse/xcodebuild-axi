@@ -166,8 +166,6 @@ function only(...via: readonly string[]): OptionCoverage {
 const gap = (command: string, why: string): Gap => ({ command, why });
 
 /** The gaps this file exists to make visible, phrased once and shared. */
-const CLEAN_IS_MINIMAL =
-  "`clean` takes three flags today and xcodebuild accepts this one on a clean action";
 
 export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-allowProvisioningDeviceRegistration": only(
@@ -177,12 +175,8 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-allowProvisioningUpdates": everywhere("build", "--allow-provisioning", {
     also: ["export --allow-provisioning"],
   }),
-  "-alltargets": everywhere("resolution", "--all-targets", {
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
-  }),
-  "-arch": everywhere("resolution", "--arch", {
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
-  }),
+  "-alltargets": everywhere("resolution", "--all-targets"),
+  "-arch": everywhere("resolution", "--arch"),
   "-architecture": only("platforms device-support --architecture"),
   "-archivePath": only("archive --archive-path", "export <path.xcarchive>"),
   "-authenticationKeyID": only("archive --auth-key-id", "export --auth-key-id"),
@@ -205,19 +199,10 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-defaultPackageRegistryURL": everywhere("package", "--registry-url"),
   "-deleteComponent": only("platforms component delete"),
   "-derivedDataPath": everywhere("resolution", "--derived-data", {
-    missing: [
-      gap(
-        "packages",
-        "resolved packages land in derived data, which cannot be redirected",
-      ),
-    ],
+    also: ["packages --derived-data"],
   }),
-  "-destination": everywhere("resolution", "--destination", {
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
-  }),
-  "-destination-timeout": everywhere("resolution", "--destination-timeout", {
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
-  }),
+  "-destination": everywhere("resolution", "--destination"),
+  "-destination-timeout": everywhere("resolution", "--destination-timeout"),
   "-disableAutomaticPackageResolution": everywhere(
     "package",
     "--no-auto-resolve",
@@ -266,14 +251,7 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-maximum-test-execution-time-allowance": only("test --test-timeout"),
   "-modelCode": only("platforms device-support --model-code"),
   "-only-test-configuration": only("test --only-configuration"),
-  "-only-testing": everywhere("testing", "--only", {
-    missing: [
-      gap(
-        "tests",
-        "enumeration cannot be constrained the way the run that follows it is",
-      ),
-    ],
-  }),
+  "-only-testing": everywhere("testing", "--only"),
   "-onlyUsePackageVersionsFromResolvedFile": everywhere("package", "--offline"),
   "-osVersion": only("platforms device-support --os-version"),
   "-packageAuthorizationProvider": everywhere("package", "--package-auth"),
@@ -300,7 +278,6 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-scmProvider": everywhere("package", "--scm-provider"),
   "-sdk": everywhere("resolution", "--sdk", {
     also: ["find --sdk"],
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-showBuildSettings": only("settings"),
   "-showBuildSettingsForIndex": only("settings --for-index"),
@@ -310,14 +287,7 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-showsdks": only("info --sdks"),
   "-showTestPlans": only("testplans"),
   "-skip-test-configuration": only("test --skip-configuration"),
-  "-skip-testing": everywhere("testing", "--skip", {
-    missing: [
-      gap(
-        "tests",
-        "enumeration cannot be constrained the way the run that follows it is",
-      ),
-    ],
-  }),
+  "-skip-testing": everywhere("testing", "--skip"),
   "-skipPackagePluginValidation": everywhere(
     "package",
     "--skip-plugin-validation",
@@ -328,9 +298,7 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   ),
   "-skipPackageUpdates": everywhere("package", "--skip-package-updates"),
   "-skipUnavailableActions": everywhere("build", "--skip-unavailable-actions"),
-  "-target": everywhere("resolution", "--target", {
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
-  }),
+  "-target": everywhere("resolution", "--target"),
   "-test-iterations": only("test --iterations"),
   "-test-repetition-relaunch-enabled": only("test --relaunch"),
   "-test-timeouts-enabled": only("test --test-timeout"),
@@ -340,12 +308,9 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-testRegion": only("test --region"),
   "-toolchain": everywhere("resolution", "--toolchain", {
     also: ["find --toolchain"],
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
   }),
   "-version": only("info"),
-  "-xcconfig": everywhere("resolution", "--xcconfig", {
-    missing: [gap("clean", CLEAN_IS_MINIMAL)],
-  }),
+  "-xcconfig": everywhere("resolution", "--xcconfig"),
   "-xctestrun": only("test --xctestrun"),
   "-json": {
     status: "always",
@@ -355,11 +320,7 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
     status: "always",
     why: "set from the .xcodeproj found in the working directory",
   },
-  "-resultBundlePath": everywhere("action", "--artifacts-dir", {
-    missing: [
-      gap("clean", "writes a result bundle the caller cannot redirect"),
-    ],
-  }),
+  "-resultBundlePath": everywhere("action", "--artifacts-dir"),
   "-skipMacroValidation": {
     status: "always",
     why: "macro trust is an interactive prompt in disguise, and an agent cannot answer it",
@@ -386,18 +347,14 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
     why: "`xcodebuild-axi --help`, which answers it in a fraction of the tokens",
   },
   "-license": only("platforms license"),
-  "-quiet": everywhere("action", "--log-level quiet", {
-    missing: [gap("clean", "the clean log cannot be quieted")],
-  }),
+  "-quiet": everywhere("action", "--log-level quiet"),
   "-resultBundleVersion": everywhere("build", "--bundle-version"),
   "-resultStreamPath": everywhere("build", "--stream"),
   "-usage": {
     status: "superseded",
     why: "`xcodebuild-axi <command> --help`, per command rather than all 117 at once",
   },
-  "-verbose": everywhere("action", "--log-level verbose", {
-    missing: [gap("clean", "the clean log cannot be made verbose")],
-  }),
+  "-verbose": everywhere("action", "--log-level verbose"),
 };
 
 /** The build actions, classified the same way. */

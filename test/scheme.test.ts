@@ -20,6 +20,7 @@ describe("resolveSubject", () => {
       resolveSubject(project, { targets: [], allTargets: true }, "settings"),
     ).resolves.toEqual({
       label: "all targets",
+      slug: "all-targets",
       flags: ["-alltargets"],
       rerun: "--all-targets",
       targetMode: true,
@@ -33,6 +34,7 @@ describe("resolveSubject", () => {
       ),
     ).resolves.toEqual({
       label: "MyApp,MyAppTests",
+      slug: "MyApp-MyAppTests",
       flags: ["-target", "MyApp", "-target", "MyAppTests"],
       rerun: "--target MyApp --target MyAppTests",
       targetMode: true,
