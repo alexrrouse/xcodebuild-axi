@@ -523,26 +523,10 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
   delete: only("sim delete"),
   io: only("sim screenshot", "sim video"),
   openurl: only("sim open"),
-  privacy: {
-    status: "missing",
-    from: "sim",
-    why: "a permission prompt cannot be granted ahead of a UI test",
-  },
-  push: {
-    status: "missing",
-    from: "sim",
-    why: "a push notification cannot be simulated",
-  },
-  status_bar: {
-    status: "missing",
-    from: "sim",
-    why: "the status bar cannot be pinned, which screenshot tests need",
-  },
-  ui: {
-    status: "missing",
-    from: "sim",
-    why: "dark mode and content size cannot be set for a test run",
-  },
+  privacy: only("sim privacy"),
+  push: only("sim push"),
+  status_bar: only("sim status-bar"),
+  ui: only("sim ui"),
   spawn: {
     status: "n/a",
     why: "running arbitrary processes on a device is not this tool's job",

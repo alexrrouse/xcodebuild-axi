@@ -204,24 +204,13 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Companion tools
 
-`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **56.3% of 71 leaves**, counted the same way:
+`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **62% of 71 leaves**, counted the same way:
 
 | Tool           | Leaves | Covered    |
 | -------------- | ------ | ---------- |
 | `xcresulttool` | 21     | 17 (81%)   |
 | `xccov`        | 9      | 9 (100%)   |
-| `simctl`       | 41     | 14 (34.1%) |
-
-### Still open
-
-4 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
-
-| Leaf                | Unreachable from | What that costs                                              |
-| ------------------- | ---------------- | ------------------------------------------------------------ |
-| `simctl privacy`    | `sim`            | a permission prompt cannot be granted ahead of a UI test     |
-| `simctl push`       | `sim`            | a push notification cannot be simulated                      |
-| `simctl status_bar` | `sim`            | the status bar cannot be pinned, which screenshot tests need |
-| `simctl ui`         | `sim`            | dark mode and content size cannot be set for a test run      |
+| `simctl`       | 41     | 18 (43.9%) |
 
 The denominator is read from `xcodebuild -help` rather than hand-maintained, and this table is written against **Xcode 27.0** — the option list moves between releases. `npm run coverage:check` fails on that Xcode if an option here is unclassified or has been dropped, and reports the difference without failing on any other.
 
