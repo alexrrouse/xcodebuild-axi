@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { AxiError } from "../errors.js";
 import { resolveProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
@@ -36,7 +36,7 @@ import {
 
 export const SIM_HELP = `usage: xcodebuild-axi sim [subcommand] [name|udid] [app] [flags]
 Inspects and drives simulators. With no subcommand, lists the booted ones.
-subcommands[18]:
+subcommands[21]:
   list                 every available simulator
   boot <name|udid>     boot one, or no-op if it is already booted
   shutdown <name|udid> shut one down, or no-op if it already is; --all for every booted one
@@ -59,7 +59,12 @@ subcommands[18]:
   status-bar <name|udid> [pin|clear]  freeze the status bar for a screenshot
   ui <name|udid> [light|dark|<setting> <value>]  read or set appearance,
                        contrast and content size
-flags[14]:
+  location <name|udid> [lat,lon|scenario|clear]  put the device somewhere;
+                       two or more pairs move it between them
+  media <name|udid> <path> [...]   add photos, videos or contacts to it
+  container <name|udid> [bundle-id] [app|data|groups]
+                       where an app's files are on this machine
+flags[15]:
   --runtime <name>     filter the list, e.g. "iOS 26.5"
   --booted             list only booted simulators
   --all                apply shutdown or erase to every eligible simulator
@@ -74,6 +79,7 @@ flags[14]:
   --time <string>      with status-bar: the clock, e.g. "9:41"
   --battery <0-100>    with status-bar: the battery level
   --bars <0-4>         with status-bar: wifi and cellular signal strength
+  --speed <m/s>        with location: how fast to move between waypoints
 note:
   install, launch, terminate and uninstall take the app as a path or a bundle
   id, and work it out from the project in the current directory when it is
@@ -92,6 +98,9 @@ examples:
   xcodebuild-axi sim privacy "iPhone 17 Pro" grant photos
   xcodebuild-axi sim status-bar "iPhone 17 Pro" pin
   xcodebuild-axi sim ui "iPhone 17 Pro" dark
+  xcodebuild-axi sim location "iPhone 17 Pro" 37.7749,-122.4194
+  xcodebuild-axi sim media "iPhone 17 Pro" fixtures/receipt.png
+  xcodebuild-axi sim container "iPhone 17 Pro" data
 `;
 
 export const SIM_FLAGS = [
@@ -109,6 +118,7 @@ export const SIM_FLAGS = [
   "--time",
   "--battery",
   "--bars",
+  "--speed",
 ] as const;
 const VALUE_FLAGS = [
   "--runtime",
@@ -119,12 +129,14 @@ const VALUE_FLAGS = [
   "--time",
   "--battery",
   "--bars",
+  "--speed",
 ] as const;
 
 export async function simCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "sim", SIM_FLAGS, VALUE_FLAGS);
 
-  const [subcommand, target, app, extra] = positionals(args, VALUE_FLAGS);
+  const words = positionals(args, VALUE_FLAGS);
+  const [subcommand, target, app, extra] = words;
 
   switch (subcommand ?? "booted") {
     case "booted":
@@ -165,12 +177,18 @@ export async function simCommand(args: string[]): Promise<string> {
       return statusBar(args, target, app);
     case "ui":
       return ui(target, app, extra);
+    case "location":
+      return location(target, words.slice(2), args);
+    case "media":
+      return media(target, words.slice(2));
+    case "container":
+      return container(args, target, app, extra);
     default:
       throw new AxiError(
         `Unknown sim subcommand '${subcommand}'`,
         "VALIDATION_ERROR",
         [
-          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui",
+          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui, location, media, container",
         ],
       );
   }
@@ -804,6 +822,316 @@ async function openUrl(
     ]);
   }
   return renderFields({ opened: url, sim: simulator.name });
+}
+
+/** A `lat,lon` pair, which is how simctl spells a place. */
+const COORDINATE = /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/;
+
+/**
+ * Where the device thinks it is.
+ *
+ * One pair sets a location, several move between them, a name runs one of
+ * simctl's own scenarios, and nothing at all lists what those are — there is
+ * no way to read the current location back, so the list is the only useful
+ * thing a bare `sim location` can say.
+ */
+async function location(
+  target: string | undefined,
+  places: string[],
+  args: string[],
+): Promise<string> {
+  const simulator = await requireBooted(target, "locate");
+
+  if (places.length === 0) {
+    const { stdout } = await simctl(["location", simulator.udid, "list"]);
+    const scenarios = scenarioNames(stdout);
+    return renderOutput([
+      renderFields({ sim: simulator.name, scenarios }),
+      renderHelp([
+        `Run \`xcodebuild-axi sim location "${simulator.name}" 37.7749,-122.4194\` to put it somewhere specific`,
+        "simctl reports no current location, so this lists what can be asked for rather than where it is",
+      ]),
+    ]);
+  }
+
+  if (places.length === 1 && places[0] === "clear") {
+    await runLocation(simulator, ["clear"]);
+    return renderFields({ location: "cleared", sim: simulator.name });
+  }
+
+  const coordinates = places.filter((place) => COORDINATE.test(place));
+  if (coordinates.length === 0) {
+    return runScenario(simulator, places.join(" "));
+  }
+  if (coordinates.length !== places.length) {
+    throw new AxiError(
+      "A location is either coordinates or a scenario name and not both",
+      "VALIDATION_ERROR",
+      [
+        `xcodebuild-axi sim location "${simulator.name}" 37.7749,-122.4194`,
+        `Run \`xcodebuild-axi sim location "${simulator.name}"\` for the scenarios simctl ships`,
+      ],
+    );
+  }
+
+  const first = coordinates[0] as string;
+  if (coordinates.length === 1) {
+    await runLocation(simulator, ["set", first]);
+    const [latitude, longitude] = first.split(",").map(Number);
+    return renderFields({ sim: simulator.name, latitude, longitude });
+  }
+
+  // Two or more waypoints is simctl's `start`, which interpolates between
+  // them and returns immediately -- the device keeps moving afterwards.
+  const speed = getIntFlag(args, "--speed");
+  await runLocation(simulator, [
+    "start",
+    ...(speed !== undefined ? [`--speed=${speed}`] : []),
+    ...coordinates,
+  ]);
+  return renderOutput([
+    renderFields({
+      location: "moving",
+      sim: simulator.name,
+      waypoints: coordinates.length,
+      speed: `${speed ?? 20}m/s`,
+    }),
+    renderHelp([
+      `Run \`xcodebuild-axi sim location "${simulator.name}" clear\` to stop it`,
+    ]),
+  ]);
+}
+
+async function runLocation(
+  simulator: Simulator,
+  rest: string[],
+): Promise<void> {
+  const { exitCode, stderr, stdout } = await simctl([
+    "location",
+    simulator.udid,
+    ...rest,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `Could not set the location on ${simulator.name}`,
+      "VALIDATION_ERROR",
+      [firstLine(stderr) || firstLine(stdout)],
+    );
+  }
+}
+
+/**
+ * A scenario by name. simctl matches it exactly and answers "Could not find
+ * scenario", so the list is fetched first to correct the case and to say what
+ * the alternatives were.
+ */
+async function runScenario(
+  simulator: Simulator,
+  requested: string,
+): Promise<string> {
+  const { stdout } = await simctl(["location", simulator.udid, "list"]);
+  const scenarios = scenarioNames(stdout);
+  const match = scenarios.find(
+    (name) => name.toLowerCase() === requested.toLowerCase(),
+  );
+  if (match === undefined) {
+    throw new AxiError(
+      `simctl has no location scenario called '${requested}'`,
+      "NOT_FOUND",
+      [`scenarios: ${scenarios.join(", ")}`],
+    );
+  }
+
+  await runLocation(simulator, ["run", match]);
+  return renderOutput([
+    renderFields({ location: match, sim: simulator.name }),
+    renderHelp([
+      `Run \`xcodebuild-axi sim location "${simulator.name}" clear\` to stop it`,
+    ]),
+  ]);
+}
+
+/**
+ * simctl prints its scenarios as a two-column table with the name repeated as
+ * the description, under a header and a row of equals signs.
+ */
+export function scenarioNames(stdout: string): string[] {
+  return stdout
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0 && !line.startsWith("="))
+    .map((line) => line.replace(/\s{2,}.*$/, "").trim())
+    .filter((name) => name.length > 0);
+}
+
+/**
+ * Photos, videos and contacts, so a test that needs a full library does not
+ * start with a human tapping through the Photos app.
+ */
+async function media(
+  target: string | undefined,
+  paths: string[],
+): Promise<string> {
+  const simulator = await requireBooted(target, "add media to");
+
+  if (paths.length === 0) {
+    throw new AxiError("sim media needs a file to add", "VALIDATION_ERROR", [
+      `xcodebuild-axi sim media "${simulator.name}" fixtures/receipt.png`,
+      "photos, live photos, videos and vCard contacts are what simctl accepts",
+    ]);
+  }
+
+  const files = paths.map((path) => resolve(path));
+  const missing = files.filter((file) => !existsSync(file));
+  if (missing.length > 0) {
+    throw new AxiError(
+      missing.length === 1
+        ? `No file at ${tildePath(missing[0] as string)}`
+        : `${missing.length} of the ${files.length} files are not there`,
+      "NOT_FOUND",
+      // One path is already in the message; several are not.
+      missing.length === 1 ? [] : missing.map(tildePath),
+    );
+  }
+
+  const { exitCode, stderr } = await simctl([
+    "addmedia",
+    simulator.udid,
+    ...files,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `Could not add ${files.length === 1 ? "that file" : "those files"} to ${simulator.name}`,
+      "VALIDATION_ERROR",
+      importComplaints(stderr),
+    );
+  }
+
+  return renderFields({
+    added: files.length,
+    sim: simulator.name,
+    files: files.map((file) => basename(file)),
+  });
+}
+
+/**
+ * simctl reports a rejected file as
+ * `Failed to import '<path>', error [<domain>] 22: ... File type unsupported.`
+ * and then says "see stderr", which is where the reader already is. The
+ * useful half is the filename and the last sentence.
+ */
+export function importComplaints(stderr: string): string[] {
+  return stderr
+    .split("\n")
+    .filter((line) => line.startsWith("Failed to import"))
+    .map((line) => {
+      const file = line.match(/'([^']+)'/)?.[1];
+      const reason = line.split(":").pop()?.trim();
+      return file && reason ? `${basename(file)} — ${reason}` : line.trim();
+    });
+}
+
+/** The containers simctl names, plus any App Group identifier. */
+const CONTAINERS = ["app", "data", "groups"];
+
+/**
+ * Where an app's files are on this machine.
+ *
+ * With no container named, both the ones worth having come back at once: the
+ * bundle that was installed and the data directory a test writes into. The
+ * alternative is two calls, and the second is always the one that was wanted.
+ */
+async function container(
+  args: string[],
+  target: string | undefined,
+  first: string | undefined,
+  second: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "inspect");
+
+  // `sim container <device> data` and `sim container <device> <id> data` both
+  // read naturally, so the container word is recognised wherever it lands.
+  const [kind, named] = isContainer(first)
+    ? [first, second]
+    : [isContainer(second) ? second : undefined, first];
+
+  const bundleId =
+    named ?? (await productOf(args, simulator, "inspect")).bundleId;
+
+  const installed = await listApps(simulator.udid);
+  if (!installed.some((entry) => entry.bundleId === bundleId)) {
+    throw new AxiError(
+      `'${bundleId}' is not installed on ${simulator.name}`,
+      "NOT_FOUND",
+      [`Run \`xcodebuild-axi sim apps "${simulator.name}"\` to see what is`],
+    );
+  }
+
+  if (kind === "groups") {
+    const groups = await readContainer(simulator, bundleId, "groups");
+    const rows: Record<string, string> = {};
+    for (const line of groups.split("\n")) {
+      const [id, path] = line.split("\t");
+      if (id && path) rows[id] = tildePath(path.trim());
+    }
+    return renderOutput([
+      renderFields({ app: bundleId, sim: simulator.name }),
+      Object.keys(rows).length > 0
+        ? renderFields(rows)
+        : renderFields({ groups: `${bundleId} is in no App Groups` }),
+    ]);
+  }
+
+  if (kind !== undefined) {
+    return renderFields({
+      app: bundleId,
+      sim: simulator.name,
+      [kind === "app" ? "bundle" : kind]: tildePath(
+        await readContainer(simulator, bundleId, kind),
+      ),
+    });
+  }
+
+  return renderOutput([
+    renderFields({
+      app: bundleId,
+      sim: simulator.name,
+      bundle: tildePath(await readContainer(simulator, bundleId, "app")),
+      data: tildePath(await readContainer(simulator, bundleId, "data")),
+    }),
+    renderHelp([
+      `Run \`xcodebuild-axi sim container "${simulator.name}" ${bundleId} groups\` for its App Group containers`,
+    ]),
+  ]);
+}
+
+function isContainer(word: string | undefined): word is string {
+  return (
+    word !== undefined &&
+    (CONTAINERS.includes(word) || word.startsWith("group."))
+  );
+}
+
+async function readContainer(
+  simulator: Simulator,
+  bundleId: string,
+  kind: string,
+): Promise<string> {
+  const { stdout, stderr, exitCode } = await simctl([
+    "get_app_container",
+    simulator.udid,
+    bundleId,
+    kind,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `${simulator.name} has no ${kind} container for '${bundleId}'`,
+      "NOT_FOUND",
+      [firstLine(stderr)],
+    );
+  }
+  return stdout.trim();
 }
 
 /** The services simctl will grant, revoke or reset. */

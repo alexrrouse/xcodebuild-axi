@@ -532,18 +532,12 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
     status: "n/a",
     why: "a sysdiagnose is an Apple support artifact, not an agent loop",
   },
-  addmedia: {
-    status: "n/a",
-    why: "photo library fixtures belong to a test target, not a build wrapper",
-  },
+  addmedia: only("sim media"),
   appinfo: {
     status: "n/a",
     why: "`listapps` answers the same question for an agent",
   },
-  get_app_container: {
-    status: "n/a",
-    why: "a container path is a debugging detail, not a build output",
-  },
+  get_app_container: only("sim container"),
   getenv: {
     status: "n/a",
     why: "device environment variables are a simctl debugging tool",
@@ -562,10 +556,7 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
     status: "n/a",
     why: "`platforms` downloads runtimes through xcodebuild",
   },
-  location: {
-    status: "n/a",
-    why: "simulated location belongs to a test target",
-  },
+  location: only("sim location"),
   keychain: {
     status: "n/a",
     why: "seeding a keychain belongs to a test target",

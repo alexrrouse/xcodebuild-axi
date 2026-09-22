@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { findDeviceType, prettyRuntime } from "../src/simctl.js";
 import {
   appRow,
+  importComplaints,
   isPayloadPath,
+  scenarioNames,
   simCommand,
   statusOverrides,
   statusRows,
@@ -212,5 +214,54 @@ describe("uiSetting", () => {
 
   it("refuses a setting simctl does not have", () => {
     expect(() => uiSetting("volume", "11")).toThrow(/no ui setting/);
+  });
+});
+
+describe("scenarioNames", () => {
+  // simctl prints a two-column table with the name repeated as its own
+  // description, under a header and a row of equals signs.
+  const listed = [
+    "Name                 Description",
+    "========================================================",
+    "City Run             City Run",
+    "City Bicycle Ride    City Bicycle Ride",
+    "Freeway Drive        Freeway Drive",
+    "Apple                Apple",
+    "",
+  ].join("\n");
+
+  it("reads the names out without doubling them", () => {
+    expect(scenarioNames(listed)).toEqual([
+      "City Run",
+      "City Bicycle Ride",
+      "Freeway Drive",
+      "Apple",
+    ]);
+  });
+
+  it("finds nothing in an empty table", () => {
+    expect(scenarioNames("Name  Description\n=====\n")).toEqual([]);
+  });
+});
+
+describe("importComplaints", () => {
+  // simctl says which file it refused and then "see stderr", which is where
+  // the reader already is. The filename and the last sentence are the half
+  // worth keeping.
+  it("keeps the file and the reason", () => {
+    const stderr = [
+      "Failed to import '/tmp/notes.txt', error [NSPOSIXErrorDomain] 22: The operation couldn't be completed. File type unsupported.",
+      "",
+      "An error was encountered processing the command (domain=com.apple.CoreSimulator.LaunchdSimError, code=133):",
+      "Multiple errors were returned; see stderr",
+    ].join("\n");
+
+    expect(importComplaints(stderr)).toEqual([
+      "notes.txt — The operation couldn't be completed. File type unsupported.",
+    ]);
+  });
+
+  it("says nothing when simctl explained nothing", () => {
+    expect(importComplaints("")).toEqual([]);
   });
 });
