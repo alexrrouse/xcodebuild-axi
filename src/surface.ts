@@ -514,23 +514,11 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
   boot: only("sim boot"),
   shutdown: only("sim shutdown"),
   erase: only("sim erase"),
-  install: {
-    status: "missing",
-    from: "sim",
-    why: "a built .app cannot be put on the simulator it was built for",
-  },
-  launch: {
-    status: "missing",
-    from: "sim",
-    why: "the app a build just produced cannot be run",
-  },
-  terminate: { status: "missing", why: "a running app cannot be stopped" },
-  uninstall: { status: "missing", why: "an installed app cannot be removed" },
-  listapps: {
-    status: "missing",
-    from: "sim",
-    why: "what is installed on a simulator cannot be listed",
-  },
+  install: only("sim install"),
+  launch: only("sim launch"),
+  terminate: only("sim terminate"),
+  uninstall: only("sim uninstall"),
+  listapps: only("sim apps"),
   create: { status: "missing", why: "a missing device cannot be created" },
   delete: {
     status: "missing",

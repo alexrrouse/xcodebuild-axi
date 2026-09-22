@@ -4,6 +4,30 @@ Notable changes to `xcodebuild-axi`. Versions follow
 [semver](https://semver.org/); the format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **`sim` can run the app a build just produced.** Five simctl subcommands:
+  `sim apps`, `install`, `launch`, `terminate` and `uninstall`.
+
+  The app is optional in all four mutations. Without one, it is worked out
+  from the project in the current directory — `-showBuildSettings` against the
+  simulator's own destination answers both the `.app` path and the bundle id,
+  and answers them for the right platform, which a hand-typed DerivedData path
+  routinely does not. That resolution is most of the point: `build`, then
+  `sim install "iPhone 17 Pro"`, then `sim launch "iPhone 17 Pro"`, with
+  nothing pasted between the steps.
+
+  The mutations are idempotent where simctl's are not: terminating an app that
+  is not running and uninstalling one that is not installed are the state
+  being asked for, so both are a no-op at exit 0. `sim apps` filters out the
+  four dozen apps Apple ships — a typical device answers with 46 apps of which
+  two are the developer's — and `--system` puts them back.
+
+  `simctl listapps` prints an old-style NeXTSTEP plist rather than JSON, and
+  offers no `-j`; it goes through `plutil` to become readable.
+
 ## [0.1.11] - 2026-09-21
 
 ### Added

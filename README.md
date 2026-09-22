@@ -204,25 +204,20 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Companion tools
 
-`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **43.7% of 71 leaves**, counted the same way:
+`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **50.7% of 71 leaves**, counted the same way:
 
-| Tool           | Leaves | Covered   |
-| -------------- | ------ | --------- |
-| `xcresulttool` | 21     | 17 (81%)  |
-| `xccov`        | 9      | 9 (100%)  |
-| `simctl`       | 41     | 5 (12.2%) |
+| Tool           | Leaves | Covered    |
+| -------------- | ------ | ---------- |
+| `xcresulttool` | 21     | 17 (81%)   |
+| `xccov`        | 9      | 9 (100%)   |
+| `simctl`       | 41     | 10 (24.4%) |
 
 ### Still open
 
-13 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
+8 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
 
 | Leaf                | Unreachable from | What that costs                                                  |
 | ------------------- | ---------------- | ---------------------------------------------------------------- |
-| `simctl install`    | `sim`            | a built .app cannot be put on the simulator it was built for     |
-| `simctl launch`     | `sim`            | the app a build just produced cannot be run                      |
-| `simctl terminate`  | `?`              | a running app cannot be stopped                                  |
-| `simctl uninstall`  | `?`              | an installed app cannot be removed                               |
-| `simctl listapps`   | `sim`            | what is installed on a simulator cannot be listed                |
 | `simctl create`     | `?`              | a missing device cannot be created                               |
 | `simctl delete`     | `sim`            | stale devices cannot be reclaimed, and they cost gigabytes       |
 | `simctl io`         | `sim`            | a screenshot of a failing UI cannot be taken                     |
