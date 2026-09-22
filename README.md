@@ -4,7 +4,7 @@
   <a href="https://www.npmjs.com/package/xcodebuild-axi"><img alt="npm" src="https://img.shields.io/npm/v/xcodebuild-axi?style=flat-square" /></a>
   <a href="https://axi.md/"><img alt="AXI" src="https://img.shields.io/badge/AXI-compliant-blue?style=flat-square" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square" />
-  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-89.4%25-yellow?style=flat-square" /><!-- coverage-badge:end -->
+  <!-- coverage-badge:start --><img alt="xcodebuild coverage" src="https://img.shields.io/badge/xcodebuild_coverage-91.3%25-brightgreen?style=flat-square" /><!-- coverage-badge:end -->
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
@@ -171,7 +171,7 @@ Every command takes `--help`.
 
 <!-- coverage:start -->
 
-**Coverage: 89.4% of the 160 leaves `xcodebuild` documents** — every option, build action, export options key, `-create-xcframework` argument, and the second forms that only a usage line mentions.
+**Coverage: 91.3% of the 160 leaves `xcodebuild` documents** — every option, build action, export options key, `-create-xcframework` argument, and the second forms that only a usage line mentions.
 
 A leaf is one switch you could type. Counting options alone says 100% (117/117), which was true and hid every gap below: an option is one thing, and `-exportOptionsPlist` alone opens eighteen more.
 
@@ -181,8 +181,8 @@ A leaf is one switch you could type. Counting options alone says 100% (117/117),
 | build actions                                          | 10      | 9 (90%)         |
 | second forms (`-version <infoitem>`, `-license check`) | 7       | 6 (85.7%)       |
 | `-exportOptionsPlist` keys                             | 18      | 6 (33.3%)       |
-| `-create-xcframework` options                          | 8       | 5 (62.5%)       |
-| **total**                                              | **160** | **143 (89.4%)** |
+| `-create-xcframework` options                          | 8       | 8 (100%)        |
+| **total**                                              | **160** | **146 (91.3%)** |
 
 **Reach: 93.6%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 21 pairs are open.
 
@@ -214,7 +214,7 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Still open
 
-69 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
+66 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
 
 | Leaf                                                        | Unreachable from | What that costs                                                                                             |
 | ----------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -252,9 +252,6 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 | `manifest` (export options)                                 | `export`         | an over-the-web distribution manifest cannot be written                                                     |
 | `embedOnDemandResourcesAssetPacksInBundle` (export options) | `export`         | on-demand resource asset packs cannot be embedded for testing                                               |
 | `onDemandResourcesAssetPacksBaseURL` (export options)       | `export`         | on-demand resource asset packs cannot be pointed at a host                                                  |
-| `-archive` (xcframework)                                    | `xcframework`    | the usual workflow — archive per platform, then bundle by framework name — is unreachable                   |
-| `-debug-symbols` (xcframework)                              | `xcframework`    | every xcframework this tool builds ships without dSYMs                                                      |
-| `-allow-internal-distribution` (xcframework)                | `xcframework`    | an internal-only xcframework cannot be produced                                                             |
 | `xcresulttool get test-results tests`                       | `result`         | the full test tree of a finished run cannot be listed                                                       |
 | `xcresulttool get test-results test-details`                | `result`         | the only source of a per-failure file and line; without it a failing test reports a message and no location |
 | `xcresulttool get test-results activities`                  | `result`         | the step-by-step activity trail of a failing test cannot be read                                            |
