@@ -204,22 +204,20 @@ The one action left out is `installsrc` — it copies sources into `SRCROOT` as 
 
 ### Companion tools
 
-`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **33.8% of 71 leaves**, counted the same way:
+`xcresulttool`, `xccov` and `simctl` are not xcodebuild, so they are not in the number above — but this tool wraps all three, and an agent that has to shell out to one directly has dropped back down. **36.6% of 71 leaves**, counted the same way:
 
-| Tool           | Leaves | Covered    |
-| -------------- | ------ | ---------- |
-| `xcresulttool` | 21     | 15 (71.4%) |
-| `xccov`        | 9      | 4 (44.4%)  |
-| `simctl`       | 41     | 5 (12.2%)  |
+| Tool           | Leaves | Covered   |
+| -------------- | ------ | --------- |
+| `xcresulttool` | 21     | 17 (81%)  |
+| `xccov`        | 9      | 4 (44.4%) |
+| `simctl`       | 41     | 5 (12.2%) |
 
 ### Still open
 
-20 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
+18 leaves are known gaps rather than decisions — each one a reason someone would still reach for the raw tool:
 
 | Leaf                                       | Unreachable from | What that costs                                                         |
 | ------------------------------------------ | ---------------- | ----------------------------------------------------------------------- |
-| `xcresulttool compare`                     | `result`         | two runs cannot be diffed, which is the question CI asks most           |
-| `xcresulttool merge`                       | `result`         | the bundles of a sharded test run cannot be combined                    |
 | `xccov view --report --functions-for-file` | `coverage`       | coverage stops at the file, so the uncovered function has no name       |
 | `xccov view --archive`                     | `coverage`       | a standalone .xccovarchive cannot be read, only a result bundle         |
 | `xccov view --file`                        | `coverage`       | the per-line coverage of one file cannot be printed                     |

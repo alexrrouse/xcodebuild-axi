@@ -1,11 +1,20 @@
 import { AxiError } from "../errors.js";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
-import { exportDir } from "../xcodebuild.js";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { exportDir, mergedBundlePath } from "../xcodebuild.js";
 import {
   describeDevice,
   exportBundle,
   EXPORT_KINDS,
+  mergeBundles,
+  readComparison,
   readActivities,
   readBuildResults,
   readBundleMetadata,
@@ -21,10 +30,15 @@ import {
   type BuildResults,
   type BundleMetadata,
   type ContentAvailability,
+  type CountDelta,
+  type Differential,
+  type DifferentialIssue,
   type ExportKind,
   type Insight,
   type LogSection,
   type MetricsManifestEntry,
+  type TestFailureDelta,
+  type TestReference,
   type TestInsights,
   type TestMetric,
   type TestNode,
@@ -40,6 +54,7 @@ import {
   renderList,
   renderOutput,
   tildePath,
+  truncate,
 } from "../toon.js";
 import {
   getFlag,
@@ -51,7 +66,7 @@ import {
 
 export const RESULT_HELP = `usage: xcodebuild-axi result <path.xcresult> [flags]
 Re-reads a result bundle that a previous run wrote, without rebuilding.
-flags[15]:
+flags[17]:
   --failures     failures and errors only
   --warnings     include the full warning list
   --tests        every test the run recorded, as the tree Xcode groups them into
@@ -63,7 +78,11 @@ flags[15]:
   --metadata     when the bundle was written, and in what format
   --export <what> write part of the bundle out: attachments, diagnostics,
                  metrics, or evaluations
-  --to <dir>     where --export writes (default: under ~/Library/Caches)
+  --against <path> compare this run to a baseline bundle: what broke, what
+                 got fixed, which tests came and went
+  --merge        combine two or more bundles into one, for a sharded run
+  --to <path>    where --export or --merge writes (default: under
+                 ~/Library/Caches)
   --test <id>    the test --activities, --metrics or --export is about
   --filter <glob> with --export attachments: filenames to keep, e.g. '*.png'
   --max <n>      rows to list before summarizing the rest (default: 20)
@@ -78,12 +97,18 @@ note:
   and where. --failures narrows attachments and evaluations to what a failing
   test produced, which is usually all anyone wants out of a green run's
   hundreds of screenshots.
+
+  --against answers 'is this worse than before' in one call: a failure the
+  baseline did not have is what a CI check is looking for, and it is reported
+  ahead of everything else.
 examples:
   xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.xcresult
   xcodebuild-axi result build/MyApp.xcresult --failures --full
   xcodebuild-axi result build/MyApp.xcresult --log build --max 10
   xcodebuild-axi result build/MyApp.xcresult --activities --test MyAppTests/CheckoutTests/testTotal
   xcodebuild-axi result build/MyApp.xcresult --export attachments --failures
+  xcodebuild-axi result build/MyApp.xcresult --against build/baseline.xcresult
+  xcodebuild-axi result shard1.xcresult shard2.xcresult --merge
 `;
 
 export const RESULT_FLAGS = [
@@ -97,6 +122,8 @@ export const RESULT_FLAGS = [
   "--available",
   "--metadata",
   "--export",
+  "--against",
+  "--merge",
   "--to",
   "--test",
   "--filter",
@@ -109,6 +136,7 @@ const VALUE_FLAGS = [
   "--log",
   "--test",
   "--export",
+  "--against",
   "--to",
   "--filter",
 ] as const;
@@ -242,6 +270,8 @@ const MODES = [
   "--available",
   "--metadata",
   "--export",
+  "--against",
+  "--merge",
 ] as const;
 
 /**
@@ -298,6 +328,15 @@ async function readMode(
       return reportMetadata(await readBundleMetadata(path), bundle);
     case "--export":
       return runExport(path, args, max, bundle);
+    case "--against":
+      return reportComparison(
+        await readComparison(path, baselineOf(args)),
+        args,
+        max,
+        bundle,
+      );
+    case "--merge":
+      return runMerge(args, max);
   }
 }
 
@@ -426,6 +465,206 @@ async function runExport(
       shown,
     ),
     bundle,
+  ]);
+}
+
+/**
+ * `--against`, which is the question CI actually asks: not "did this run
+ * fail" but "did it fail in a way the last one did not".
+ *
+ * A failure the baseline did not have is reported ahead of everything else,
+ * because it is the only part of a comparison that stops a merge.
+ */
+function reportComparison(
+  differential: Differential | null,
+  args: string[],
+  max: number,
+  bundle: string,
+): string {
+  const baseline = renderFields({ baseline: tildePath(baselineOf(args)) });
+
+  if (differential === null) {
+    return renderOutput([
+      renderFields({
+        compare: "nothing comparable — these two bundles hold different things",
+      }),
+      baseline,
+      bundle,
+      renderHelp([
+        "Run `xcodebuild-axi result <path> --available` on each to see what they hold",
+        "A build bundle and a test bundle have no common ground to compare",
+      ]),
+    ]);
+  }
+
+  const summary = differential.summary ?? {};
+  const tests = summary.testsExecuted ?? {};
+  const blocks = [
+    renderFields({
+      tests: `${tests.itemsInBaseline ?? 0} → ${tests.itemsInCurrent ?? 0}`,
+      added: tests.added ?? 0,
+      removed: tests.removed ?? 0,
+      failures: deltaField(summary.testFailures),
+      warnings: deltaField(summary.buildWarnings),
+      analyzer: deltaField(summary.analyzerIssues),
+    }),
+  ];
+
+  const introduced = differential.testFailures?.introduced ?? [];
+  const resolved = differential.testFailures?.resolved ?? [];
+  if (introduced.length > 0) {
+    blocks.push(cappedList("newly_failing", failureDeltaRows(introduced), max));
+  }
+  if (resolved.length > 0) {
+    blocks.push(cappedList("now_passing", failureDeltaRows(resolved), max));
+  }
+
+  const added = differential.testsExecuted?.added ?? [];
+  const removed = differential.testsExecuted?.removed ?? [];
+  if (added.length > 0) {
+    blocks.push(cappedList("added_tests", testRefRows(added), max));
+  }
+  if (removed.length > 0) {
+    blocks.push(cappedList("removed_tests", testRefRows(removed), max));
+  }
+
+  const newWarnings = [
+    ...(differential.buildWarnings?.introduced ?? []),
+    ...(differential.analyzerIssues?.introduced ?? []),
+  ];
+  if (newWarnings.length > 0) {
+    blocks.push(cappedList("new_warnings", issueRows(newWarnings), max));
+  }
+
+  if (blocks.length === 1) {
+    blocks.push(
+      renderFields({ difference: "none — this run matches the baseline" }),
+    );
+  }
+
+  return renderOutput([...blocks, baseline, bundle]);
+}
+
+function baselineOf(args: string[]): string {
+  const against = getFlag(args, "--against");
+  if (against === undefined) {
+    throw new AxiError(
+      "--against needs the baseline bundle to compare with",
+      "VALIDATION_ERROR",
+      ["xcodebuild-axi result <path.xcresult> --against <baseline.xcresult>"],
+    );
+  }
+  return resolve(expandTilde(against));
+}
+
+/** "0 → 2 (+2 -0)", which says both the level and the direction. */
+export function deltaField(delta: CountDelta | undefined): string {
+  const before = delta?.itemsInBaseline ?? 0;
+  const after = delta?.itemsInCurrent ?? 0;
+  return `${before} → ${after} (+${delta?.introduced ?? 0} -${delta?.resolved ?? 0})`;
+}
+
+export function failureDeltaRows(
+  deltas: TestFailureDelta[],
+): Array<Record<string, unknown>> {
+  return deltas.map((delta) => ({
+    test:
+      delta.associatedTest?.testIdentifier ?? delta.associatedTest?.name ?? "",
+    message: truncate(delta.failureMessage ?? "", 300).text,
+  }));
+}
+
+function testRefRows(refs: TestReference[]): Array<Record<string, unknown>> {
+  return refs.map((ref) => ({ test: ref.testIdentifier ?? ref.name ?? "" }));
+}
+
+function issueRows(
+  issues: DifferentialIssue[],
+): Array<Record<string, unknown>> {
+  return issues.map((issue) => ({
+    target: issue.producingTarget ?? "",
+    message: truncate(issue.message ?? "", 300).text,
+  }));
+}
+
+function cappedList(
+  label: string,
+  rows: Array<Record<string, unknown>>,
+  max: number,
+): string {
+  const shown = rows.slice(0, max);
+  return renderList(
+    rows.length > shown.length
+      ? `${label} (${shown.length} of ${rows.length})`
+      : label,
+    shown,
+  );
+}
+
+/**
+ * `--merge`, which is how a sharded test run gets one verdict.
+ *
+ * The merged bundle is read back afterwards rather than described from the
+ * inputs: the point of merging is the combined counts, and reporting them from
+ * the thing that was actually written is the only way they are true.
+ */
+async function runMerge(args: string[], max: number): Promise<string> {
+  const paths = positionals(args, VALUE_FLAGS).map((path) =>
+    resolve(expandTilde(path)),
+  );
+  if (paths.length < 2) {
+    throw new AxiError(
+      `--merge combines two or more bundles, and ${paths.length} was given`,
+      "VALIDATION_ERROR",
+      [
+        "xcodebuild-axi result shard1.xcresult shard2.xcresult --merge",
+        "Each `test` run prints the bundle path it wrote",
+      ],
+    );
+  }
+
+  const requested = getFlag(args, "--to");
+  const outputPath = requested
+    ? resolve(expandTilde(requested))
+    : mergedBundlePath(paths);
+
+  // A bundle the caller named is theirs, and xcresulttool will write straight
+  // over it. The one under our own cache directory is ours to clear, which is
+  // the same split `runBuild` makes about the bundle it writes.
+  if (requested && existsSync(outputPath)) {
+    throw new AxiError(
+      `Something is already at ${tildePath(outputPath)}`,
+      "VALIDATION_ERROR",
+      [
+        "Pass a path that does not exist yet, or drop --to to write under ~/Library/Caches",
+      ],
+    );
+  }
+  if (!requested) rmSync(outputPath, { recursive: true, force: true });
+  mkdirSync(dirname(outputPath), { recursive: true });
+
+  await mergeBundles(paths, outputPath);
+
+  const merged = await readTestSummary(outputPath).catch(() => undefined);
+  return renderOutput([
+    renderFields({
+      merged: paths.length,
+      ...(merged && (merged.totalTestCount ?? 0) > 0
+        ? {
+            tests: `${merged.passedTests ?? 0} passed / ${merged.failedTests ?? 0} failed / ${merged.skippedTests ?? 0} skipped`,
+            result: merged.result?.toLowerCase() ?? "unknown",
+          }
+        : {}),
+      to: tildePath(outputPath),
+    }),
+    cappedList(
+      "from",
+      paths.map((path) => ({ bundle: tildePath(path) })),
+      max,
+    ),
+    renderHelp([
+      `Run \`xcodebuild-axi result ${tildePath(outputPath)}\` to report on the merged run`,
+    ]),
   ]);
 }
 

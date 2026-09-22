@@ -363,6 +363,58 @@ export function readBuildResults(path: string): Promise<BuildResults> {
   return xcresulttool<BuildResults>(["get", "build-results"], path);
 }
 
+/** What `xcresulttool compare` answers: one run measured against another. */
+export interface Differential {
+  summary?: DifferentialSummary;
+  testFailures?: {
+    introduced?: TestFailureDelta[];
+    resolved?: TestFailureDelta[];
+  };
+  testsExecuted?: { added?: TestReference[]; removed?: TestReference[] };
+  buildWarnings?: IssueDelta;
+  analyzerIssues?: IssueDelta;
+}
+
+export interface DifferentialSummary {
+  testFailures?: CountDelta;
+  buildWarnings?: CountDelta;
+  analyzerIssues?: CountDelta;
+  testsExecuted?: {
+    itemsInBaseline?: number;
+    itemsInCurrent?: number;
+    added?: number;
+    removed?: number;
+  };
+}
+
+export interface CountDelta {
+  itemsInBaseline?: number;
+  itemsInCurrent?: number;
+  introduced?: number;
+  resolved?: number;
+}
+
+export interface TestReference {
+  name?: string;
+  testIdentifier?: string;
+}
+
+export interface TestFailureDelta {
+  associatedTest?: TestReference;
+  failureMessage?: string;
+}
+
+export interface IssueDelta {
+  introduced?: DifferentialIssue[];
+  resolved?: DifferentialIssue[];
+}
+
+export interface DifferentialIssue {
+  message?: string;
+  producingTarget?: string;
+  issueType?: string;
+}
+
 /** What an `xcresulttool export` can be asked for. */
 export const EXPORT_KINDS = [
   "attachments",
@@ -468,6 +520,112 @@ function exportComplaint(output: string): string | undefined {
     .map((line) => line.trim())
     .find((line) => line.startsWith("Error:"));
   return reason?.replace(/^Error:\s*/, "");
+}
+
+/**
+ * One run measured against another.
+ *
+ * Not routed through `xcresulttool()` because `compare` takes the bundle as a
+ * positional rather than as `--path`, and rejects `--compact` outright. It
+ * also answers a bare `null` rather than an error when the two bundles have
+ * nothing comparable in them — a build bundle against a test one — which is an
+ * answer the caller has to be able to tell apart from a clean comparison.
+ */
+export function readComparison(
+  path: string,
+  baselinePath: string,
+): Promise<Differential | null> {
+  for (const [label, candidate] of [
+    ["", path],
+    ["baseline ", baselinePath],
+  ] as const) {
+    if (!existsSync(candidate)) {
+      throw new AxiError(
+        `No ${label}result bundle at ${candidate}`,
+        "RESULT_NOT_FOUND",
+        [
+          "Run `xcodebuild-axi build` or `test` first — each prints the bundle path it wrote",
+        ],
+      );
+    }
+  }
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "xcrun",
+      ["xcresulttool", "compare", path, "--baseline-path", baselinePath],
+      { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
+      (error, stdout, stderr) => {
+        const complaint = exportComplaint(`${stdout}\n${stderr}`);
+        // `compare` prints its refusals and still exits 0, so the exit code is
+        // not the signal here; the `Error:` line is.
+        if (error || complaint) {
+          rejectPromise(
+            new AxiError(
+              complaint ?? `Could not compare ${path} to ${baselinePath}`,
+              "RESULT_NOT_FOUND",
+              [
+                "Run `xcodebuild-axi result <path> --available` on each bundle to see what they hold",
+              ],
+            ),
+          );
+          return;
+        }
+        try {
+          resolvePromise(JSON.parse(stdout) as Differential | null);
+        } catch {
+          rejectPromise(
+            new AxiError(
+              `Comparing ${path} to ${baselinePath} produced unreadable output`,
+              "RESULT_NOT_FOUND",
+            ),
+          );
+        }
+      },
+    );
+  });
+}
+
+/**
+ * Combine bundles into one, which is how a sharded test run gets a single
+ * verdict. Writes a bundle rather than printing one, so the caller reports the
+ * path and then reads it back like any other.
+ */
+export function mergeBundles(
+  paths: string[],
+  outputPath: string,
+): Promise<void> {
+  for (const path of paths) {
+    if (!existsSync(path)) {
+      throw new AxiError(`No result bundle at ${path}`, "RESULT_NOT_FOUND", [
+        "Run `xcodebuild-axi build` or `test` first — each prints the bundle path it wrote",
+      ]);
+    }
+  }
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "xcrun",
+      ["xcresulttool", "merge", ...paths, "--output-path", outputPath],
+      { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
+      (error, stdout, stderr) => {
+        const complaint = exportComplaint(`${stdout}\n${stderr}`);
+        if (error || complaint) {
+          rejectPromise(
+            new AxiError(
+              complaint ?? `Could not merge ${paths.length} result bundles`,
+              "RESULT_NOT_FOUND",
+              [
+                "Bundles written by different Xcode versions cannot be merged into one",
+              ],
+            ),
+          );
+          return;
+        }
+        resolvePromise();
+      },
+    );
+  });
 }
 
 /**
