@@ -6,6 +6,40 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **`sim apps <device> <bundle-id>` reports one app in full**, which is
+  `simctl appinfo`. The list stops at the bundle; this adds the data container
+  a test writes into, the App Groups it shares, and whether the app is
+  first-party, hidden, removable or an app clip. Same subcommand rather than a
+  new one, because the list is where you are when you want it.
+
+  Paths come back out of `appinfo` as `file://` URLs with percent-escapes —
+  `iOS%2026.5.simruntime` — and are decoded to something a shell will take.
+  The four flags print as `0` and `1` and survive `plutil` as the _strings_
+  `"0"` and `"1"`, so all three spellings are read.
+
+- **`sim pasteboard <device> [text]` reads and writes the pasteboard.** With
+  text it copies, without it pastes. Two simctl subcommands (`pbcopy`,
+  `pbpaste`) become one, because they are the same question asked in two
+  directions and the separate names only make sense standing in a shell that
+  already has both. `pbcopy` takes its input on stdin and nowhere else, so
+  `simctl()` grew an optional stdin.
+
+### Notes
+
+- **`simctl install_app_data` does not work on Xcode 27** and stays declined.
+  It was going to be wrapped in this release. Every package shape was tried —
+  with and without `AppDataInfo.plist`, with `bundleID` / `CFBundleIdentifier`
+  / `BundleID` as its key, with and without the container's own
+  `.com.apple.mobile_container_manager.metadata.plist`, against a first-party
+  and a user app, on a booted device and a freshly created one, from `/tmp`
+  and from a home directory — and all of them fail the same way:
+  `com.apple.containermanager` code 55, "Could not get the existing data
+  container location for the app". The one shape that behaves differently is a
+  wrong bundle id, which says so. Wrapping a subcommand that cannot succeed
+  would be a command that only ever reports someone else's bug.
+
 ## [0.1.13] - 2026-09-21
 
 ### Added

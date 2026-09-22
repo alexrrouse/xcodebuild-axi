@@ -12,6 +12,7 @@ import {
   listApps,
   listDeviceTypes,
   listSimulators,
+  readAppInfo,
   simctl,
   type DeviceType,
   type InstalledApp,
@@ -25,6 +26,7 @@ import {
   renderList,
   renderOutput,
   tildePath,
+  truncate,
 } from "../toon.js";
 import {
   getFlag,
@@ -36,12 +38,13 @@ import {
 
 export const SIM_HELP = `usage: xcodebuild-axi sim [subcommand] [name|udid] [app] [flags]
 Inspects and drives simulators. With no subcommand, lists the booted ones.
-subcommands[21]:
+subcommands[22]:
   list                 every available simulator
   boot <name|udid>     boot one, or no-op if it is already booted
   shutdown <name|udid> shut one down, or no-op if it already is; --all for every booted one
   erase <name|udid>    erase one back to factory state; --all for every shut-down one
-  apps <name|udid>     the apps installed on it; --system to include Apple's
+  apps <name|udid> [bundle-id]     the apps installed on it, or one in full;
+                       --system to include Apple's
   install <name|udid> [path.app]   install an app; without a path, the one
                        this project builds for that simulator
   launch <name|udid> [bundle-id]   launch it; without an id, this project's
@@ -64,6 +67,8 @@ subcommands[21]:
   media <name|udid> <path> [...]   add photos, videos or contacts to it
   container <name|udid> [bundle-id] [app|data|groups]
                        where an app's files are on this machine
+  pasteboard <name|udid> [text]    read what is on its pasteboard, or put
+                       something there
 flags[15]:
   --runtime <name>     filter the list, e.g. "iOS 26.5"
   --booted             list only booted simulators
@@ -101,6 +106,7 @@ examples:
   xcodebuild-axi sim location "iPhone 17 Pro" 37.7749,-122.4194
   xcodebuild-axi sim media "iPhone 17 Pro" fixtures/receipt.png
   xcodebuild-axi sim container "iPhone 17 Pro" data
+  xcodebuild-axi sim pasteboard "iPhone 17 Pro" "MyApp-1a2b3c4d"
 `;
 
 export const SIM_FLAGS = [
@@ -150,7 +156,7 @@ export async function simCommand(args: string[]): Promise<string> {
     case "erase":
       return erase(args, target);
     case "apps":
-      return apps(args, target);
+      return apps(args, target, app);
     case "install":
       return install(args, target, app);
     case "launch":
@@ -183,12 +189,14 @@ export async function simCommand(args: string[]): Promise<string> {
       return media(target, words.slice(2));
     case "container":
       return container(args, target, app, extra);
+    case "pasteboard":
+      return pasteboard(target, words.slice(2).join(" ") || undefined);
     default:
       throw new AxiError(
         `Unknown sim subcommand '${subcommand}'`,
         "VALIDATION_ERROR",
         [
-          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui, location, media, container",
+          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui, location, media, container, pasteboard",
         ],
       );
   }
@@ -388,8 +396,11 @@ async function erase(
 async function apps(
   args: string[],
   target: string | undefined,
+  app: string | undefined,
 ): Promise<string> {
   const simulator = await resolveTarget(target, "apps");
+  if (app !== undefined) return appDetail(simulator, app);
+
   const installed = await listApps(simulator.udid);
   const wanted = hasFlag(args, "--system")
     ? installed
@@ -419,17 +430,26 @@ async function apps(
 }
 
 export function appRow(app: InstalledApp): Record<string, unknown> {
-  // Version and build as one field: TOON quotes `"1.0"` and `"1"` because
-  // they look like numbers, and two quoted columns cost more than the one
-  // readable string they add up to.
-  const version = [app.version, app.build && `(${app.build})`]
-    .filter((part) => part)
-    .join(" ");
   return {
     app: app.name,
     bundle_id: app.bundleId,
-    version: version || "unknown",
+    version: versionOf(app),
   };
+}
+
+/**
+ * Version and build as one field: TOON quotes `"1.0"` and `"1"` because they
+ * look like numbers, and two quoted columns cost more than the one readable
+ * string they add up to.
+ */
+export function versionOf(
+  app: Pick<InstalledApp, "version" | "build">,
+): string {
+  return (
+    [app.version, app.build && `(${app.build})`]
+      .filter((part) => part)
+      .join(" ") || "unknown"
+  );
 }
 
 async function install(
@@ -822,6 +842,104 @@ async function openUrl(
     ]);
   }
   return renderFields({ opened: url, sim: simulator.name });
+}
+
+/**
+ * One app in full, which is `simctl appinfo`.
+ *
+ * `listapps` gives a row per app and stops at the bundle; this adds the data
+ * container a test writes into, the App Groups it shares, and the four flags
+ * that say what kind of app it is. Worth a subcommand of its own only if the
+ * list had to be re-read to get here -- so it is the same one, with the app
+ * named.
+ */
+async function appDetail(
+  simulator: Simulator,
+  bundleId: string,
+): Promise<string> {
+  const detail = await readAppInfo(simulator.udid, bundleId);
+  const kind = [
+    detail.firstParty ? "first-party" : undefined,
+    detail.appClip ? "app clip" : undefined,
+    detail.hidden ? "hidden" : undefined,
+    detail.removable ? "removable" : undefined,
+  ].filter((word): word is string => word !== undefined);
+
+  return renderOutput([
+    renderFields({
+      app: detail.name,
+      bundle_id: detail.bundleId,
+      version: versionOf(detail),
+      sim: simulator.name,
+      type: detail.type,
+      ...(kind.length > 0 ? { kind } : {}),
+      bundle: tildePath(detail.path),
+      data: tildePath(detail.dataContainer),
+      ...(detail.groups.length > 0 ? { groups: detail.groups } : {}),
+    }),
+    renderHelp([
+      `Run \`xcodebuild-axi sim launch "${simulator.name}" ${detail.bundleId}\` to start it`,
+    ]),
+  ]);
+}
+
+/**
+ * Standard input for the simulator's pasteboard, and standard output back.
+ *
+ * Reading and writing are the same subcommand because they are the same
+ * question asked in two directions, and because `pbcopy`/`pbpaste` as two
+ * names only makes sense standing inside a shell that already has both.
+ */
+async function pasteboard(
+  simulator_target: string | undefined,
+  text: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(simulator_target, "paste on");
+
+  if (text === undefined) {
+    const { stdout, stderr, exitCode } = await simctl([
+      "pbpaste",
+      simulator.udid,
+    ]);
+    if (exitCode !== 0) {
+      throw new AxiError(
+        `Could not read the pasteboard on ${simulator.name}`,
+        "UNKNOWN",
+        [firstLine(stderr)],
+      );
+    }
+    const contents = stdout.replace(/\n$/, "");
+    return renderOutput([
+      renderFields({
+        sim: simulator.name,
+        ...(contents.length > 0
+          ? { pasteboard: truncate(contents, 2000).text }
+          : { pasteboard: "empty" }),
+      }),
+      renderHelp(
+        contents.length > 0
+          ? []
+          : [
+              `Run \`xcodebuild-axi sim pasteboard "${simulator.name}" "text"\` to put something on it`,
+            ],
+      ),
+    ]);
+  }
+
+  const { exitCode, stderr } = await simctl(["pbcopy", simulator.udid], text);
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `Could not write to the pasteboard on ${simulator.name}`,
+      "UNKNOWN",
+      [firstLine(stderr)],
+    );
+  }
+
+  return renderFields({
+    pasteboard: truncate(text, 200).text,
+    sim: simulator.name,
+    characters: text.length,
+  });
 }
 
 /** A `lat,lon` pair, which is how simctl spells a place. */

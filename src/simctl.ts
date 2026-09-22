@@ -29,9 +29,11 @@ interface RawDevice {
 
 export function simctl(
   args: string[],
+  /** Written to the child's stdin, for the subcommands that read it (`pbcopy`). */
+  input?: string,
 ): Promise<{ stdout: string; exitCode: number; stderr: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
-    execFile(
+    const child = execFile(
       "xcrun",
       ["simctl", ...args],
       { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
@@ -53,6 +55,13 @@ export function simctl(
         });
       },
     );
+
+    if (input !== undefined) {
+      // `pbcopy` takes the pasteboard contents on stdin and nowhere else, so
+      // the stream is closed rather than left open -- it copies what it reads
+      // until EOF.
+      child.stdin?.end(input);
+    }
   });
 }
 
@@ -181,6 +190,82 @@ export async function listApps(udid: string): Promise<InstalledApp[]> {
     type: (app.ApplicationType ?? "unknown").toLowerCase(),
     path: app.Path ?? "",
   }));
+}
+
+/** Everything `listapps` reports about one app, plus what it leaves out. */
+export interface AppDetail extends InstalledApp {
+  /** The .app bundle, which is `path`, and the container a test writes into. */
+  dataContainer: string;
+  groups: string[];
+  firstParty: boolean;
+  removable: boolean;
+  hidden: boolean;
+  appClip: boolean;
+}
+
+/**
+ * `simctl appinfo`, which answers for one app what `listapps` answers for all
+ * of them -- and adds the data container, the App Groups and the four flags
+ * that say what kind of app it is. Same old-style plist, same trip through
+ * `plutil`.
+ *
+ * The paths come back as `file://` URLs with percent-escapes in them, which
+ * no shell or editor wants; `Path` is the plain form of the bundle, and the
+ * data container has to be decoded.
+ */
+export async function readAppInfo(
+  udid: string,
+  bundleId: string,
+): Promise<AppDetail> {
+  const { stdout, stderr, exitCode } = await simctl([
+    "appinfo",
+    udid,
+    bundleId,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(`Could not read '${bundleId}'`, "NOT_FOUND", [
+      (stderr.trim().split("\n").pop() ?? "").trim(),
+    ]);
+  }
+
+  const raw = (await plistToJson(stdout)) as unknown as RawAppInfo;
+  return {
+    bundleId: raw.CFBundleIdentifier ?? bundleId,
+    name: raw.CFBundleDisplayName ?? raw.CFBundleName ?? bundleId,
+    version: raw.CFBundleShortVersionString ?? "",
+    build: raw.CFBundleVersion === undefined ? "" : String(raw.CFBundleVersion),
+    type: (raw.ApplicationType ?? "unknown").toLowerCase(),
+    path: raw.Path ?? "",
+    dataContainer: fromFileUrl(raw.DataContainer),
+    groups: Object.keys(raw.GroupContainers ?? {}),
+    // The plist prints these as 0 and 1 and `plutil` keeps them as the
+    // strings "0" and "1", so none of the three spellings can be assumed.
+    firstParty: isSet(raw.IsFirstParty),
+    removable: isSet(raw.IsRemovable),
+    hidden: isSet(raw.IsHidden),
+    appClip: isSet(raw.IsAppClip),
+  };
+}
+
+interface RawAppInfo extends RawApp {
+  CFBundleIdentifier?: string;
+  DataContainer?: string;
+  GroupContainers?: Record<string, string>;
+  IsFirstParty?: number | boolean | string;
+  IsRemovable?: number | boolean | string;
+  IsHidden?: number | boolean | string;
+  IsAppClip?: number | boolean | string;
+}
+
+function isSet(value: number | boolean | string | undefined): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
+/** `file:///a%20path/` as a path anyone can paste into a shell. */
+export function fromFileUrl(url: string | undefined): string {
+  if (url === undefined) return "";
+  if (!url.startsWith("file://")) return url;
+  return decodeURIComponent(url.slice("file://".length)).replace(/\/$/, "");
 }
 
 function plistToJson(text: string): Promise<Record<string, RawApp>> {

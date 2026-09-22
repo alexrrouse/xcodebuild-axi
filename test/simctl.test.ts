@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { findDeviceType, prettyRuntime } from "../src/simctl.js";
+import { findDeviceType, fromFileUrl, prettyRuntime } from "../src/simctl.js";
 import {
   appRow,
   importComplaints,
   isPayloadPath,
   scenarioNames,
+  versionOf,
   simCommand,
   statusOverrides,
   statusRows,
@@ -263,5 +264,34 @@ describe("importComplaints", () => {
 
   it("says nothing when simctl explained nothing", () => {
     expect(importComplaints("")).toEqual([]);
+  });
+});
+
+describe("versionOf", () => {
+  it("reads a version and a build as one field", () => {
+    expect(versionOf({ version: "1.2", build: "44" })).toBe("1.2 (44)");
+  });
+
+  it("says unknown rather than printing an empty column", () => {
+    expect(versionOf({ version: "", build: "" })).toBe("unknown");
+  });
+
+  it("copes with a build nobody set", () => {
+    expect(versionOf({ version: "1.2", build: "" })).toBe("1.2");
+  });
+});
+
+describe("fromFileUrl", () => {
+  // `appinfo` reports every path as a file:// URL with percent-escapes in it,
+  // and a runtime path has a space in it — "iOS 26.5.simruntime".
+  it("turns a file URL back into a path a shell can take", () => {
+    expect(fromFileUrl("file:///tmp/iOS%2026.5.simruntime/MyApp.app/")).toBe(
+      "/tmp/iOS 26.5.simruntime/MyApp.app",
+    );
+  });
+
+  it("leaves a plain path alone", () => {
+    expect(fromFileUrl("/tmp/MyApp.app")).toBe("/tmp/MyApp.app");
+    expect(fromFileUrl(undefined)).toBe("");
   });
 });
