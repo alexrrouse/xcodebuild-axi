@@ -4,7 +4,7 @@ Notable changes to `xcodebuild-axi`. Versions follow
 [semver](https://semver.org/); the format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.10] - 2026-09-21
 
 ### Added
 
@@ -370,7 +370,8 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.9...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.6...v0.1.7
