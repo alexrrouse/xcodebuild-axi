@@ -6,6 +6,8 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-24
+
 ### Added
 
 - **`settings --value`** prints only the values of the `--key` settings, one
@@ -736,7 +738,8 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.15...v0.2.0
 [0.1.15]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.13...v0.1.14
