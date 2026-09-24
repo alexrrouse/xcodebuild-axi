@@ -6,6 +6,14 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- **`test` names the compile error when a package's test target fails to
+  build**, instead of reporting `0 passed / 0 failed` with a hint that an
+  `--only` filter matched nothing. xcresulttool writes an all-zero test summary
+  for that run, so the summary alone could not tell it from a filter that
+  matched nothing; a real compiler diagnostic in the build results now can.
+
 ## [0.2.0] - 2026-09-23
 
 ### Added

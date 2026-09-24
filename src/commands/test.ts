@@ -13,6 +13,7 @@ import {
   readTestSummary,
   toDiagnostics,
   describeDevice,
+  type BuildResults,
   type TestFailure,
   type TestSummary,
 } from "../xcresult.js";
@@ -151,11 +152,13 @@ export async function testCommand(args: string[]): Promise<string> {
   });
 
   const summary = await readTestSummary(run.resultPath).catch(() => undefined);
+  // Only worth the second xcresulttool call when the summary counted nothing.
+  const build =
+    summary?.totalTestCount === 0
+      ? await readBuildResults(run.resultPath).catch(() => undefined)
+      : undefined;
 
-  // No test summary on a nonzero exit means the tests never ran — the build
-  // under them failed, or xcodebuild refused the invocation. Report that as a
-  // build failure rather than "0 tests", which reads like a passing run.
-  if (!summary || summary.totalTestCount === undefined) {
+  if (!summary || testsNeverRan(summary, build)) {
     return renderTestsNeverRan(context, run);
   }
 
@@ -406,6 +409,30 @@ async function renderTestSummary(
 
   if (!succeeded) process.exitCode = 1;
   return renderOutput(blocks);
+}
+
+/**
+ * Whether the tests under a run never started, so the report is the build's.
+ *
+ * No summary at all means the build failed or xcodebuild refused the
+ * invocation. But a summary is not proof the tests ran: when a Swift
+ * package's test target fails to compile, xcresulttool still answers with
+ * `{title: "Test - X", totalTestCount: 0}` — the same shape `result` already
+ * refuses to read as a test run. Reported as a summary, a compile error came
+ * out as "0 passed / 0 failed" and a hint that an `--only` filter matched
+ * nothing, on a run that had no filter. A real diagnostic in the build
+ * results is what tells the two apart: a filter that matched nothing
+ * compiles cleanly.
+ */
+export function testsNeverRan(
+  summary: TestSummary | undefined,
+  build: BuildResults | undefined,
+): boolean {
+  if (!summary || summary.totalTestCount === undefined) return true;
+  if (summary.totalTestCount > 0) return false;
+  return (build?.errors ?? []).some(
+    (issue) => (issue.issueType ?? "").toLowerCase() !== "uncategorized",
+  );
 }
 
 /**
