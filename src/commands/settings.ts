@@ -445,3 +445,32 @@ export function parseSettings(stdout: string): Record<string, string> {
   }
   return merged;
 }
+
+/**
+ * The settings of the one target a scheme builds that is an app.
+ *
+ * `parseSettings` merges every target and lets the last one win, which is
+ * right for "what is this key" and wrong for "which app do I install": a
+ * scheme that lists a widget extension or a test bundle in its build action
+ * would hand back `MyApp-Widget.appex` or `MyAppTests.xctest` as the product.
+ * Falls back to the merged view when nothing says it is an application.
+ */
+export function parseAppSettings(stdout: string): Record<string, string> {
+  const start = stdout.indexOf("[");
+  if (start === -1) return {};
+  let parsed: { buildSettings?: Record<string, string> }[];
+  try {
+    parsed = JSON.parse(stdout.slice(start)) as {
+      buildSettings?: Record<string, string>;
+    }[];
+  } catch {
+    return {};
+  }
+  const type = (entry: { buildSettings?: Record<string, string> }): string =>
+    entry.buildSettings?.["PRODUCT_TYPE"] ?? "";
+  const app =
+    parsed.find(
+      (entry) => type(entry) === "com.apple.product-type.application",
+    ) ?? parsed.find((entry) => type(entry).includes("application"));
+  return app?.buildSettings ?? parseSettings(stdout);
+}

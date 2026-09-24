@@ -82,6 +82,7 @@ export type OptionCoverage =
  */
 export const BUILD_FAMILY = [
   "build",
+  "run",
   "test",
   "tests",
   "analyze",
@@ -170,6 +171,12 @@ function only(...via: readonly string[]): OptionCoverage {
  * to arrive incomplete, and silence about that is what this file exists to
  * prevent.
  */
+/** Targets build with no scheme, and a scheme is what names the app to launch. */
+const RUN_NEEDS_A_SCHEME: Gap = {
+  command: "run",
+  why: "a target build has no scheme, and the scheme is what names the app to launch",
+};
+
 export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-allowProvisioningDeviceRegistration": only(
     "archive --allow-device-registration",
@@ -178,7 +185,9 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   "-allowProvisioningUpdates": everywhere("build", "--allow-provisioning", {
     also: ["export --allow-provisioning"],
   }),
-  "-alltargets": everywhere("resolution", "--all-targets"),
+  "-alltargets": everywhere("resolution", "--all-targets", {
+    declined: [RUN_NEEDS_A_SCHEME],
+  }),
   "-arch": everywhere("resolution", "--arch"),
   "-architecture": only("platforms device-support --architecture"),
   "-archivePath": only("archive --archive-path", "export <path.xcarchive>"),
@@ -301,7 +310,9 @@ export const OPTION_COVERAGE: Record<string, OptionCoverage> = {
   ),
   "-skipPackageUpdates": everywhere("package", "--skip-package-updates"),
   "-skipUnavailableActions": everywhere("build", "--skip-unavailable-actions"),
-  "-target": everywhere("resolution", "--target"),
+  "-target": everywhere("resolution", "--target", {
+    declined: [RUN_NEEDS_A_SCHEME],
+  }),
   "-test-iterations": only("test --iterations"),
   "-test-repetition-relaunch-enabled": only("test --relaunch"),
   "-test-timeouts-enabled": only("test --test-timeout"),
@@ -526,7 +537,7 @@ export const SIMCTL_COVERAGE: Record<string, OptionCoverage> = {
   ui: only("sim ui"),
   spawn: {
     status: "n/a",
-    why: "running arbitrary processes on a device is not this tool's job",
+    why: "running arbitrary processes on a device is not this tool's job; `sim logs` reads the unified log it is mostly used for",
   },
   diagnose: {
     status: "n/a",

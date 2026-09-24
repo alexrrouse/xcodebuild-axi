@@ -1,6 +1,7 @@
 import { AxiError } from "./errors.js";
 import type { ProjectContext } from "./context.js";
 import { runMetadata } from "./xcodebuild.js";
+import { listSimulators } from "./simctl.js";
 
 export interface Destination {
   platform: string;
@@ -14,8 +15,18 @@ export interface Destination {
    * simulator.
    */
   variant: string;
-  /** xcodebuild listed it under "Ineligible destinations". */
+  /**
+   * xcodebuild listed it under "Ineligible destinations" (Xcode 26) or
+   * "Destinations incompatible with the scheme" (Xcode 27).
+   */
   eligible: boolean;
+  /**
+   * Why xcodebuild will not run there, in its own words — "iPhone 17 Pro’s iOS
+   * Simulator 26.5 doesn’t match MyApp.app’s iOS Simulator 27.0 deployment
+   * target". Only an incompatible row carries one, and it is the only place
+   * the fix is named.
+   */
+  reason?: string;
 }
 
 /**
@@ -28,8 +39,21 @@ export interface Destination {
  * the split is driven by the next `key:` rather than by commas.
  */
 export function parseDestinationLine(line: string): Destination | undefined {
-  const inner = line.trim().match(/^\{(.*)\}$/)?.[1];
+  let inner = line.trim().match(/^\{(.*)\}$/)?.[1];
   if (inner === undefined) return undefined;
+
+  // `error:` is always the last field and is prose, so it can hold anything
+  // the key-driven split below would misread. Take it off whole first.
+  let reason: string | undefined;
+  const errorAt = inner.search(/,\s*error:/);
+  if (errorAt >= 0) {
+    reason = inner
+      .slice(errorAt)
+      .replace(/^,\s*error:/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    inner = inner.slice(0, errorAt);
+  }
 
   const fields: Record<string, string> = {};
   for (const match of inner.matchAll(/(\w+):(.*?)(?=,\s*\w+:|$)/g)) {
@@ -49,6 +73,7 @@ export function parseDestinationLine(line: string): Destination | undefined {
     arch: fields["arch"] ?? "",
     variant: fields["variant"] ?? "",
     eligible: true,
+    ...(reason ? { reason } : {}),
   };
 }
 
@@ -68,10 +93,38 @@ export function isPlaceholder(destination: Destination): boolean {
 
 /** Parse a whole `-showdestinations` transcript. */
 export function parseDestinations(text: string): Destination[] {
-  const out: Destination[] = [];
+  return parseDestinationAnswer(text).destinations;
+}
+
+export interface DestinationAnswer {
+  /** Every concrete destination, eligible or not. */
+  destinations: Destination[];
+  /**
+   * The platforms of the eligible placeholders — "iOS Simulator" for
+   * "Any iOS Simulator Device". A build can target one with
+   * `generic/platform=`, and it is often all that is left: a fresh Xcode
+   * defaults new targets to its own OS, so every installed simulator can be
+   * too old to run the app and still be fine to compile for.
+   */
+  generic: string[];
+}
+
+/**
+ * Parse a `-showdestinations` transcript, keeping the placeholders apart.
+ *
+ * ⚠️ **The heading changed in Xcode 27.** 26 split the list into "Available
+ * destinations" and "Ineligible destinations"; 27 says "Destinations
+ * compatible with" and "Destinations incompatible with". Matching only the
+ * old word marked every incompatible simulator eligible, so a project whose
+ * deployment target was newer than every installed runtime got a simulator
+ * picked for it and a failed build, with the reason truncated off the end.
+ */
+export function parseDestinationAnswer(text: string): DestinationAnswer {
+  const destinations: Destination[] = [];
+  const generic: string[] = [];
   let eligible = true;
   for (const line of text.split("\n")) {
-    if (/Ineligible destinations/i.test(line)) {
+    if (/Ineligible destinations|Destinations incompatible/i.test(line)) {
       eligible = false;
       continue;
     }
@@ -80,9 +133,14 @@ export function parseDestinations(text: string): Destination[] {
       continue;
     }
     const parsed = parseDestinationLine(line);
-    if (parsed && !isPlaceholder(parsed)) out.push({ ...parsed, eligible });
+    if (!parsed) continue;
+    if (!isPlaceholder(parsed)) {
+      destinations.push({ ...parsed, eligible });
+    } else if (eligible && !generic.includes(parsed.platform)) {
+      generic.push(parsed.platform);
+    }
   }
-  return out;
+  return { destinations, generic };
 }
 
 /**
@@ -116,20 +174,26 @@ export async function listDestinations(
   project: ProjectContext,
   scheme: string,
 ): Promise<Destination[]> {
-  const probe = async (): Promise<{
-    destinations: Destination[];
-    complete: boolean;
-  }> => {
+  return (await probeDestinations(project, scheme)).destinations;
+}
+
+async function probeDestinations(
+  project: ProjectContext,
+  scheme: string,
+): Promise<DestinationAnswer & { complete: boolean }> {
+  const probe = async (): Promise<
+    DestinationAnswer & { complete: boolean }
+  > => {
     const { stdout, stderr, exitCode } = await runMetadata([
       ...project.flags,
       "-scheme",
       scheme,
       "-showdestinations",
     ]);
-    const destinations = parseDestinations(`${stdout}\n${stderr}`);
+    const answer = parseDestinationAnswer(`${stdout}\n${stderr}`);
     return {
-      destinations,
-      complete: answerLooksComplete(destinations, exitCode),
+      ...answer,
+      complete: answerLooksComplete(answer.destinations, exitCode),
     };
   };
 
@@ -137,9 +201,9 @@ export async function listDestinations(
   // a few seconds; a scheme that really is Mac-only would otherwise pay for
   // every attempt on every invocation.
   const first = await probe();
-  if (first.complete) return first.destinations;
+  if (first.complete) return first;
   const second = await probe();
-  return second.complete ? second.destinations : first.destinations;
+  return second.complete ? second : first;
 }
 
 /** Compare two "26.5"-style versions; newest first. */
@@ -160,6 +224,12 @@ export interface ResolveDestinationOptions {
   device?: string;
   /** A full xcodebuild destination specifier, passed through untouched. */
   raw?: string;
+  /**
+   * Fall back to `generic/platform=` when no concrete destination is
+   * eligible. Right for a command that only compiles; wrong for one that has
+   * to run something, which needs a real device to run it on.
+   */
+  allowGeneric?: boolean;
 }
 
 /**
@@ -179,18 +249,37 @@ export async function resolveDestination(
     return { specifier: options.raw, described: options.raw };
   }
 
-  const everything = await listDestinations(options.project, options.scheme);
+  const answer = await probeDestinations(options.project, options.scheme);
+  const everything = answer.destinations;
   const destinations = everything.filter((destination) => destination.eligible);
 
   if (destinations.length === 0) {
+    // Quoting My Mac's "platform doesn't match" for an iOS app, because the
+    // simulators never got listed, sends the reader to the wrong fix.
+    if (!answer.complete) {
+      throw new AxiError(
+        `xcodebuild listed no simulators or devices for scheme '${options.scheme}'`,
+        "DESTINATION_NOT_FOUND",
+        [
+          "Enumerating them intermittently fails, most often while another xcodebuild is finishing — re-run the same command",
+          `Run \`xcodebuild-axi destinations --scheme ${options.scheme} --all\` to see what xcodebuild answered`,
+        ],
+      );
+    }
+    const generic =
+      options.device === undefined && options.allowGeneric
+        ? pickGeneric(answer.generic)
+        : undefined;
+    if (generic) {
+      return {
+        specifier: `generic/platform=${generic}`,
+        described: `Any ${generic} Device`,
+      };
+    }
     throw new AxiError(
       `Scheme '${options.scheme}' has no runnable destinations`,
       "DESTINATION_NOT_FOUND",
-      [
-        "Run `xcodebuild-axi destinations --scheme " +
-          options.scheme +
-          "` to see everything xcodebuild reported",
-      ],
+      incompatibleHelp(everything, options.scheme, options.device),
     );
   }
 
@@ -215,8 +304,10 @@ export async function resolveDestination(
           `Scheme '${options.scheme}' lists '${options.device}' as ineligible`,
           "DESTINATION_NOT_FOUND",
           [
-            "xcodebuild will not run against it — a simulator runtime may be missing, or a device disconnected",
-            `Run \`xcodebuild-axi destinations --scheme ${options.scheme}\` to see everything xcodebuild reported`,
+            ineligible.reason ??
+              "xcodebuild will not run against it — a simulator runtime may be missing, or a device disconnected",
+            ...runtimeHelp(ineligible.reason),
+            `Run \`xcodebuild-axi destinations --scheme ${options.scheme} --all\` to see everything xcodebuild reported`,
           ],
         );
       }
@@ -230,8 +321,90 @@ export async function resolveDestination(
     return { specifier: specifierFor(match), described: describe(match) };
   }
 
-  const preferred = pickDefault(destinations);
+  // An iOS app "Designed for iPad" on this Mac is never the one meant by
+  // default: it cannot install unsigned, and signing is off. When it is all
+  // that is left, the simulators were not listed rather than not there — the
+  // same half-finished answer as above, which once sent `tests` to the Mac.
+  const runnable = destinations.filter((d) => !/designed for/i.test(d.variant));
+  if (runnable.length === 0) {
+    throw new AxiError(
+      `xcodebuild listed no simulators for scheme '${options.scheme}', only this Mac as an iPad app`,
+      "DESTINATION_NOT_FOUND",
+      [
+        "Enumerating simulators intermittently fails, most often while another xcodebuild is finishing — re-run the same command",
+        `To run on the Mac anyway: \`--destination 'platform=macOS,variant=Designed for [iPad,iPhone]' --sign\``,
+      ],
+    );
+  }
+
+  // A simulator that is already booted is the one the agent is looking at —
+  // its screenshots, its installed app — and skips a boot besides.
+  const booted = await bootedUdids();
+  const warm = runnable.filter((d) => booted.has(d.id));
+  const preferred = pickDefault(warm.length > 0 ? warm : runnable);
   return { specifier: specifierFor(preferred), described: describe(preferred) };
+}
+
+/** Udids of the booted simulators; empty when simctl cannot say. */
+async function bootedUdids(): Promise<Set<string>> {
+  try {
+    const simulators = await listSimulators();
+    return new Set(
+      simulators.filter((s) => s.state === "booted").map((s) => s.udid),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/** The best generic platform to build for, simulators first. */
+function pickGeneric(platforms: string[]): string | undefined {
+  return [...platforms].sort(
+    (a, b) =>
+      Number(!a.includes("Simulator")) - Number(!b.includes("Simulator")) ||
+      platformRank(a) - platformRank(b),
+  )[0];
+}
+
+/**
+ * Why nothing is runnable, quoted from xcodebuild.
+ *
+ * One reason is enough: they are the same sentence per device, and the first
+ * simulator of the platform that would have been picked names the fix for
+ * all of them.
+ */
+export function incompatibleHelp(
+  everything: Destination[],
+  scheme: string,
+  device?: string,
+): string[] {
+  const candidates = everything.filter((d) => d.reason !== undefined);
+  const named =
+    device === undefined
+      ? undefined
+      : candidates.find((d) => d.name.toLowerCase() === device.toLowerCase());
+  const first =
+    named?.reason ??
+    (candidates.length > 0 ? pickDefault(candidates).reason : undefined);
+  return [
+    ...(first ? [first] : []),
+    ...runtimeHelp(first),
+    `Run \`xcodebuild-axi destinations --scheme ${scheme} --all\` to see everything xcodebuild reported`,
+  ];
+}
+
+/**
+ * A deployment target newer than every installed runtime is fixed by
+ * downloading one, and the command that does it is this tool's own.
+ */
+function runtimeHelp(reason: string | undefined): string[] {
+  if (!reason || !/deployment target/i.test(reason)) return [];
+  const platform = reason.match(
+    /(iOS|tvOS|watchOS|visionOS|xrOS) Simulator/,
+  )?.[1];
+  return [
+    `Run \`xcodebuild-axi platforms download ${platform ?? "iOS"}\` to install a newer simulator runtime, or lower the deployment target`,
+  ];
 }
 
 /**

@@ -31,12 +31,18 @@ export function simctl(
   args: string[],
   /** Written to the child's stdin, for the subcommands that read it (`pbcopy`). */
   input?: string,
+  /** Extra environment, e.g. `SIMCTL_CHILD_` variables for a launched app. */
+  env?: Record<string, string>,
 ): Promise<{ stdout: string; exitCode: number; stderr: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = execFile(
       "xcrun",
       ["simctl", ...args],
-      { maxBuffer: MAX_BUFFER_BYTES, encoding: "utf-8" },
+      {
+        maxBuffer: MAX_BUFFER_BYTES,
+        encoding: "utf-8",
+        ...(env ? { env: { ...process.env, ...env } } : {}),
+      },
       (error, stdout, stderr) => {
         if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
           rejectPromise(
@@ -123,12 +129,18 @@ export function prettyRuntime(runtimeId: string): string {
  * Name matching prefers a booted device, because when a name resolves to
  * several runtimes the booted one is almost always the one meant — and acting
  * on the wrong copy of "iPhone 17 Pro" is a silent wrong answer.
+ *
+ * `booted` means what it means to simctl — the booted device — because it is
+ * the spelling every simctl example uses and so the one an agent reaches for.
  */
 export function findSimulator(
   simulators: Simulator[],
   query: string,
 ): Simulator | undefined {
   const wanted = query.toLowerCase();
+  if (wanted === "booted") {
+    return simulators.find((simulator) => simulator.state === "booted");
+  }
   const byUdid = simulators.find(
     (simulator) => simulator.udid.toLowerCase() === wanted,
   );
@@ -353,5 +365,41 @@ export function findDeviceType(
     types.find((type) => type.identifier.toLowerCase() === wanted) ??
     types.find((type) => type.name.toLowerCase() === wanted) ??
     types.find((type) => type.name.toLowerCase().includes(wanted))
+  );
+}
+
+/**
+ * Lines that frame a failure without saying what it was.
+ *
+ * simctl opens every failure with "An error was encountered processing the
+ * command" and closes it with "Underlying error … Please try again later";
+ * xcodebuild prefixes its stderr with a timestamped "Writing error result
+ * bundle to /var/folders/…". The reason is somewhere in between — for a
+ * rejected install it was the fourth line, naming the Info.plist key the
+ * extension was missing — so reporting the first line reported nothing.
+ */
+const FRAMING = [
+  /^An error was encountered processing the command/i,
+  /^Underlying error/i,
+  /^Please try again later/i,
+  /^(App installation failed: )?Unable to Install/i,
+  /^\d{4}-\d\d-\d\d [\d:.]+ \w+\[\d+:\d+\]/,
+  /^Multiple errors were returned/i,
+];
+
+/** The one line of a simctl or xcodebuild failure that says what went wrong. */
+export function failureReason(text: string): string {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const xcodebuild = lines.find((line) =>
+    line.startsWith("xcodebuild: error:"),
+  );
+  if (xcodebuild) return xcodebuild.replace(/^xcodebuild: error:\s*/, "");
+  return (
+    lines.find((line) => !FRAMING.some((pattern) => pattern.test(line))) ??
+    lines[0] ??
+    ""
   );
 }

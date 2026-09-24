@@ -67,14 +67,14 @@ iOS workspace with 16 local Swift packages, and tokenizes both answers.
 | Question                                | `xcodebuild`   | `xcodebuild-axi` | Saved      |
 | --------------------------------------- | -------------- | ---------------- | ---------- |
 | what can I build?                       | 498 tok        | 97 tok           | **80.52%** |
-| what can I run it on?                   | 1,720 tok      | 339 tok          | **80.29%** |
-| what is the bundle id?                  | 12,221 tok     | 21 tok           | **99.83%** |
+| what can I run it on?                   | 1,720 tok      | 248 tok          | **85.58%** |
+| what is the bundle id?                  | 12,222 tok     | 26 tok           | **99.79%** |
 | which targets have index settings?      | 61,850 tok     | 42 tok           | **99.93%** |
 | which SDKs are installed?               | 244 tok        | 70 tok           | **71.31%** |
 | which test plans does this scheme have? | 445 tok        | 42 tok           | **90.56%** |
-| **all 6 together**                      | **76,978 tok** | **611 tok**      | **99.21%** |
+| **all 6 together**                      | **76,979 tok** | **525 tok**      | **99.32%** |
 
-Token counts are GPT-4o BPE via `gpt-tokenizer` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by `npm run benchmark` against one app of a real multi-scheme iOS workspace on 2026-09-21.
+Token counts are GPT-4o BPE via `gpt-tokenizer` — Anthropic's tokenizer is not public, so this is a stand-in, and the ratios are what matter rather than the absolute numbers. Both stdout and stderr are counted, because that is what an agent running the command in a shell actually reads. Measured by `npm run benchmark` against one app of a real multi-scheme iOS workspace on 2026-09-24.
 
 <!-- benchmark:end -->
 
@@ -139,31 +139,32 @@ help[2]:
   Run `xcodebuild-axi test --scheme <name>` to run tests
 ```
 
-| Command        | What it does                                                      |
-| -------------- | ----------------------------------------------------------------- |
-| _(none)_       | Dashboard: what is here, what can be built, how the last run went |
-| `build`        | Build a scheme; report only errors, with `file,line,col`          |
-| `test`         | Run tests; report counts and only the failures                    |
-| `tests`        | Enumerate the tests a scheme defines, without running them        |
-| `clean`        | Clean a scheme's build products                                   |
-| `analyze`      | Run the static analyzer; report only what it found                |
-| `archive`      | Archive a scheme and report the archive's bundle id and version   |
-| `export`       | Export an archive, writing the export options plist for you       |
-| `schemes`      | List the schemes in the workspace or project                      |
-| `destinations` | List the destinations a scheme can actually run on                |
-| `testplans`    | List a scheme's test plans                                        |
-| `settings`     | Read named build settings instead of dumping all 400              |
-| `packages`     | Read the pinned Swift package versions; resolve them on request   |
-| `info`         | Xcode version, SDKs, and what this tool is pointed at             |
-| `result`       | Re-read a previous run's `.xcresult` without rebuilding           |
-| `coverage`     | Code coverage from a result bundle, per target or per file        |
-| `sim`          | Boot, shut down, and inspect simulators                           |
-| `platforms`    | Installed runtimes, and the downloads that add more               |
-| `localize`     | Export and import XLIFF localization catalogs                     |
-| `xcframework`  | Bundle built frameworks or libraries into an `.xcframework`       |
-| `find`         | Resolve an executable or library to its toolchain path            |
-| `migrate`      | Report the project file format, and convert it to a newer one     |
-| `setup`        | Install session-start hooks for Claude Code, Codex, and OpenCode  |
+| Command        | What it does                                                       |
+| -------------- | ------------------------------------------------------------------ |
+| _(none)_       | Dashboard: what is here, what can be built, how the last run went  |
+| `build`        | Build a scheme; report only errors, with `file,line,col`           |
+| `run`          | Build, install and launch the app, with its console in a file      |
+| `test`         | Run tests; report counts and only the failures                     |
+| `tests`        | Enumerate the tests a scheme defines, without running them         |
+| `clean`        | Clean a scheme's build products                                    |
+| `analyze`      | Run the static analyzer; report only what it found                 |
+| `archive`      | Archive a scheme and report the archive's bundle id and version    |
+| `export`       | Export an archive, writing the export options plist for you        |
+| `schemes`      | List the schemes in the workspace or project                       |
+| `destinations` | List the destinations a scheme can actually run on                 |
+| `testplans`    | List a scheme's test plans                                         |
+| `settings`     | Read named build settings instead of dumping all 400               |
+| `packages`     | Read the pinned Swift package versions; resolve them on request    |
+| `info`         | Xcode version, SDKs, and what this tool is pointed at              |
+| `result`       | Re-read a previous run's `.xcresult` without rebuilding            |
+| `coverage`     | Code coverage from a result bundle, per target or per file         |
+| `sim`          | Drive simulators: screenshots, logs, permissions, pushes, and more |
+| `platforms`    | Installed runtimes, and the downloads that add more                |
+| `localize`     | Export and import XLIFF localization catalogs                      |
+| `xcframework`  | Bundle built frameworks or libraries into an `.xcframework`        |
+| `find`         | Resolve an executable or library to its toolchain path             |
+| `migrate`      | Report the project file format, and convert it to a newer one      |
+| `setup`        | Install session-start hooks for Claude Code, Codex, and OpenCode   |
 
 Every command takes `--help`.
 
@@ -184,7 +185,7 @@ A leaf is one switch you could type. Counting options alone says 100% (117/117),
 | `-create-xcframework` options                          | 8       | 8 (100%)       |
 | **total**                                              | **161** | **161 (100%)** |
 
-**Reach: 100%** of the 328 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 0 pairs are open.
+**Reach: 99.5%** of the 369 command-and-option pairs. The same options, counted once per command xcodebuild accepts them on — because `-target` exposed on `build` and missing from `settings` is not covered for anyone asking `settings`. 0 pairs are open.
 
 108 options map to an `xcodebuild-axi` flag. The other 9 are reachable without one:
 
@@ -222,7 +223,7 @@ name, or pass nothing:
 
 ```sh
 xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro"   # matched for you
-xcodebuild-axi test --scheme MyApp                            # newest simulator
+xcodebuild-axi test --scheme MyApp                            # booted simulator, else newest
 xcodebuild-axi test --scheme MyApp --destination "platform=iOS Simulator,id=…"
 ```
 
@@ -230,6 +231,24 @@ Names are resolved to a simulator **udid** before the run, because two runtimes
 routinely publish the same device name and a name-based specifier silently
 picks whichever xcodebuild sees first. The reported destination is the one the
 run actually landed on, read back out of the result bundle.
+
+### Seeing the app
+
+`run` is the loop from a change to a running app: it builds, boots the
+simulator, installs, launches, and sends the app's `print()` output to a file.
+The `sim` commands then look at it without a name, as long as one simulator is
+booted:
+
+```sh
+xcodebuild-axi run --scheme MyApp --env API_URL=http://localhost:8080
+xcodebuild-axi sim screenshot
+xcodebuild-axi sim logs --scheme MyApp --last 2m    # the app's own log lines
+xcodebuild-axi sim open booted myapp://checkout
+```
+
+`sim logs` asks the unified log only for lines the app's own binary wrote —
+filtering on the process instead returns hundreds of system lines for every
+one the app logged. `--system` asks for those too.
 
 ### Reading a run again
 
@@ -273,8 +292,15 @@ npx skills add alexrrouse/xcodebuild-axi --skill xcodebuild-axi
 - **Exit codes**: `0` success, `1` the build or tests failed, `2` usage error.
   A failed build still prints its full report — the exit code is for your `&&`,
   the report is for the agent.
-- **Unknown flags fail loudly**, by name, with the valid set listed inline. A
-  silently dropped filter is worse than an error.
+- **Unknown flags fail loudly**, by name, with the nearest valid flag and the
+  valid set listed inline. A silently dropped filter is worse than an error.
+- **A raw guess gets translated, not refused.** Type what you would have typed
+  at `xcodebuild` or `simctl` — `xcodebuild-axi -showsdks`,
+  `xcodebuild-axi xcodebuild -scheme MyApp test`,
+  `xcodebuild-axi simctl io booted screenshot` — and the error names this
+  tool's command for it. Where a switch really is not wrapped, the error prints
+  the exact raw command to run instead, so an agent that falls back does so on
+  purpose rather than because the first guess failed.
 - **Nothing is written to your repository.** Logs and result bundles live under
   `~/Library/Caches/xcodebuild-axi/`, keyed by project path.
 - **No interactive prompts, ever.** Code signing is off by default so simulator

@@ -233,7 +233,42 @@ remove that fallback believing the bundle is always sufficient; it is not.
   highest number — a watchOS build for a package nobody was thinking about
   watchOS for, observed on a plain SPM target. `pickDefault` ranks platform
   first (iOS, then tvOS, visionOS, watchOS), then OS version, then prefers an
-  iPhone over an iPad on a tie.
+  iPhone over an iPad on a tie. A booted simulator beats all of that — the
+  agent almost certainly booted it on purpose — and a "Designed for
+  [iPad,iPhone]" Mac is never picked by default: it needs signing, and landing
+  on it silently turns a simulator run into a Mac one.
+- **Xcode 27 renamed the `-showdestinations` headings.** 26 printed
+  "Available destinations" and "Ineligible destinations"; 27 prints
+  "Destinations compatible with" and "Destinations incompatible with", and
+  each incompatible row carries an `error:` field giving the reason (usually a
+  deployment target above every installed runtime). Recognizing only the old
+  headings treated every incompatible simulator as eligible, so builds failed
+  against a device that could never run them. `parseDestinationAnswer` knows
+  both, and the reason reaches the agent through `destinations --all` and the
+  refusal from `--device`.
+- **`-showdestinations` sometimes answers with only the Mac rows** while
+  another xcodebuild is running on the machine. That answer is not "this
+  scheme has no simulators", so `probeDestinations` retries once and then says
+  the answer was incomplete rather than quoting the Mac's ineligibility reason
+  as if it were the scheme's.
+- **Commands that only compile can target a placeholder.** With nothing
+  runnable, `build`, `analyze`, `archive` and `clean` fall back to
+  `generic/platform=<platform>` — the "Any iOS Simulator Device" row — instead
+  of failing. `test` and `run` cannot, and say why.
+- **`-collect-test-diagnostics` defaults to `on-failure`, which costs
+  minutes.** One failing assertion made xcodebuild run `simctl diagnose` with a
+  600-second timeout after the tests had finished; the same run with `never`
+  took 8.7 seconds. `test` passes `never` unless `--diagnostics` asks for it.
+- **`-enumerate-tests` reports a broken bundle inside its JSON, and exits
+  zero.** The `errors` array holds the reason, nested inside several
+  "(Underlying Error: …)" wrappers of which only the innermost says anything;
+  `values` still lists the bundle, which counted as one test until `tests`
+  checked for errors first.
+- **`testIdentifierString` leaves out the test target.** A failure reads
+  `CheckoutTests/testFails()`, and `-only-testing` given that matches nothing:
+  the run exits non-zero with zero tests and no reason. The rerun hint joins
+  `targetName` on the front (`rerunIdentifier`), and a run of zero tests says
+  its filter matched nothing.
 
 ## Sharp edges in simctl
 
@@ -256,6 +291,48 @@ Learned while wrapping the last of it, and none of it in `simctl help`:
   already is.
 - **`get_app_container` exits 2 for an app that is not installed**, with an
   NSPOSIXErrorDomain "No such file or directory" that never names the app.
+- **Failures come wrapped in framing, and the reason is not on the first
+  line.** "An error was encountered processing the command", "Underlying
+  error", "Unable to Install" and timestamped `xcodebuild[pid:tid]` lines come
+  first. `failureReason` in `src/simctl.ts` skips them; every `sim` refusal
+  goes through it.
+- **A launched app's `print()` never reaches `--stdout` without
+  `NSUnbufferedIO=YES`.** The output sits in a buffer until the process exits.
+  `run` passes it as `SIMCTL_CHILD_NSUnbufferedIO` — every `SIMCTL_CHILD_`
+  variable reaches the app with the prefix removed, which is also how `--env`
+  works. The console file must be somewhere the app can write, so it goes in
+  the cache directory; `/tmp` silently stays empty.
+- **`log show` filtered on the process returns mostly the system's lines.**
+  `process == "MyApp"` includes every framework logging inside the app's
+  process. `senderImagePath CONTAINS "/MyApp.app/"` returns only lines the
+  app's own binary wrote, which is what `sim logs` asks for unless `--system`
+  is passed.
+- **"Merged" build settings list every target in the scheme.** Taking the
+  first one found a share extension or a test bundle as often as the app, so
+  `parseAppSettings` picks the target whose `PRODUCT_TYPE` is an application.
+
+## Wrong guesses are answered, not refused
+
+An agent that has used `xcodebuild` or `simctl` before will type their
+spelling first: `xcodebuild-axi -showsdks`, `xcodebuild-axi xcodebuild -scheme
+MyApp test`, `xcodebuild-axi simctl io booted screenshot`. If that fails with
+"unknown command" the agent concludes the tool cannot do it and drops back to
+raw `xcodebuild` for the rest of the session. So `src/redirect.ts` runs before
+the SDK's dispatch and translates the guess into this tool's command — and
+when a switch really is not wrapped, prints the exact raw command to run
+instead, so a fallback is a decision rather than a reflex.
+
+The translation is driven by `src/surface.ts`: an option's `via` is the flag
+it maps to, and an `n/a` leaf's reason is what the error says. A new flag
+therefore becomes reachable from its xcodebuild spelling without touching the
+redirect layer. Plain-word guesses (`screenshot`, `logs`, `install`) live in
+`VERB_ALIASES`, and take precedence over xcodebuild's action names —
+`install` means "put the app on the simulator" far more often than it means
+xcodebuild's `install` action.
+
+The SDK offers only a `renderUnknownCommand` hook and none for a leading
+flag, which is why this happens in `main()` on raw argv rather than inside
+the SDK.
 
 ## Coverage of xcodebuild's surface is declared, not guessed
 

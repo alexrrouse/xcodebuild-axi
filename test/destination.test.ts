@@ -5,6 +5,8 @@ import {
   isPlaceholder,
   parseDestinationLine,
   parseDestinations,
+  parseDestinationAnswer,
+  incompatibleHelp,
   pickDefault,
   type Destination,
 } from "../src/destination.js";
@@ -259,5 +261,83 @@ describe("parseDestinations", () => {
     expect(
       parseDestinations("Command line invocation:\nResolve Package Graph"),
     ).toEqual([]);
+  });
+});
+
+describe("parseDestinationAnswer on Xcode 27", () => {
+  // Xcode 27 renamed the headings. Reading only the old one marked every
+  // incompatible simulator eligible and picked one to build against.
+  const answer = `
+	Destinations compatible with the "MyApp" scheme:
+		{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }
+		{ platform:iOS Simulator, id:dvtdevice-DVTiOSDeviceSimulatorPlaceholder-iphonesimulator:placeholder, name:Any iOS Simulator Device }
+	Destinations incompatible with the "MyApp" scheme:
+		{ platform:macOS, arch:arm64e, id:00008112-000539543488C01E, name:My Mac, error:My Mac’s macOS platform doesn’t match MyApp.app’s supported platforms. You can change MyApp.app’s Base SDK or Supported Platforms to support My Mac. }
+		{ platform:iOS Simulator, arch:arm64, id:025E999B-B68A-45D3-9014-8B72ED097670, OS:26.5, name:iPhone 17 Pro, error:iPhone 17 Pro’s iOS Simulator 26.5 doesn’t match MyApp.app’s iOS Simulator 27.0  deployment target. Upgrade iPhone 17 Pro’s iOS Simulator version or lower MyApp.app’s deployment target. }
+`;
+
+  it("marks the incompatible rows ineligible", () => {
+    const { destinations } = parseDestinationAnswer(answer);
+    expect(destinations.map((d) => [d.name, d.eligible])).toEqual([
+      ["My Mac", false],
+      ["iPhone 17 Pro", false],
+    ]);
+  });
+
+  it("keeps xcodebuild's reason, whitespace folded", () => {
+    const phone = parseDestinationAnswer(answer).destinations[1];
+    expect(phone?.reason).toBe(
+      "iPhone 17 Pro’s iOS Simulator 26.5 doesn’t match MyApp.app’s iOS Simulator 27.0 deployment target. Upgrade iPhone 17 Pro’s iOS Simulator version or lower MyApp.app’s deployment target.",
+    );
+    expect(phone?.name).toBe("iPhone 17 Pro");
+  });
+
+  it("collects the eligible placeholders as generic platforms", () => {
+    expect(parseDestinationAnswer(answer).generic).toEqual([
+      "iOS",
+      "iOS Simulator",
+    ]);
+  });
+
+  it("still reads Xcode 26's headings", () => {
+    const { destinations } = parseDestinationAnswer(`
+	Available destinations for the "MyApp" scheme:
+		{ platform:iOS Simulator, arch:arm64, id:AAAA, OS:26.5, name:iPhone 17 }
+	Ineligible destinations for the "MyApp" scheme:
+		{ platform:iOS Simulator, arch:arm64, id:BBBB, OS:18.0, name:iPhone 16 }
+`);
+    expect(destinations.map((d) => d.eligible)).toEqual([true, false]);
+  });
+});
+
+describe("incompatibleHelp", () => {
+  const phone = (name: string, reason: string): Destination => ({
+    platform: "iOS Simulator",
+    name,
+    id: name,
+    os: "26.5",
+    arch: "arm64",
+    variant: "",
+    eligible: false,
+    reason,
+  });
+
+  it("quotes the named device and points at a runtime download", () => {
+    const help = incompatibleHelp(
+      [
+        phone(
+          "iPhone 17",
+          "iPhone 17’s iOS Simulator 26.5 doesn’t match the deployment target.",
+        ),
+        phone(
+          "iPhone 17 Pro",
+          "iPhone 17 Pro’s iOS Simulator 26.5 doesn’t match the deployment target.",
+        ),
+      ],
+      "MyApp",
+      "iPhone 17 Pro",
+    );
+    expect(help[0]).toContain("iPhone 17 Pro’s");
+    expect(help[1]).toContain("xcodebuild-axi platforms download iOS");
   });
 });

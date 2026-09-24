@@ -1,6 +1,7 @@
 import { encode } from "@toon-format/toon";
 import { runAxiCli } from "axi-sdk-js";
 import { AxiError, exitCodeForError } from "./errors.js";
+import { redirectArgv } from "./redirect.js";
 import { VERSION } from "./version.js";
 import { homeCommand } from "./commands/home.js";
 import { buildCommand, BUILD_HELP, BUILD_FLAGS } from "./commands/build.js";
@@ -73,14 +74,15 @@ import {
   MIGRATE_FLAGS,
 } from "./commands/migrate.js";
 import { setupCommand, SETUP_HELP, SETUP_FLAGS } from "./commands/setup.js";
+import { runCommand, RUN_HELP, RUN_FLAGS } from "./commands/run.js";
 
 export const DESCRIPTION =
   "Agent-ergonomic wrapper around xcodebuild. Prefer it over raw `xcodebuild` for any build / test / inspect of an Xcode project.";
 
 export const TOP_HELP = `usage: xcodebuild-axi [command] [flags]
-commands[23]:
+commands[24]:
   (none)=dashboard
-  build, test, tests, clean, analyze, archive, export
+  build, run, test, tests, clean, analyze, archive, export
   schemes, destinations, testplans, settings, packages, info
   result, coverage, sim, platforms, setup
   localize, xcframework, find, migrate
@@ -94,6 +96,7 @@ exit:
 examples:
   xcodebuild-axi
   xcodebuild-axi build --scheme MyApp
+  xcodebuild-axi run --scheme MyApp --device "iPhone 17 Pro"
   xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro" --coverage
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER
   xcodebuild-axi setup hooks
@@ -101,6 +104,7 @@ examples:
 
 export const COMMAND_HELP: Record<string, string> = {
   build: BUILD_HELP,
+  run: RUN_HELP,
   test: TEST_HELP,
   tests: TESTS_HELP,
   clean: CLEAN_HELP,
@@ -133,6 +137,7 @@ export const COMMAND_HELP: Record<string, string> = {
  */
 export const COMMAND_FLAGS: Record<string, readonly string[]> = {
   build: BUILD_FLAGS,
+  run: RUN_FLAGS,
   test: TEST_FLAGS,
   tests: TESTS_FLAGS,
   clean: CLEAN_FLAGS,
@@ -158,6 +163,7 @@ export const COMMAND_FLAGS: Record<string, readonly string[]> = {
 
 const COMMANDS = {
   build: (args: string[]) => buildCommand(args),
+  run: (args: string[]) => runCommand(args),
   test: (args: string[]) => testCommand(args),
   tests: (args: string[]) => testsCommand(args),
   clean: (args: string[]) => cleanCommand(args),
@@ -218,6 +224,17 @@ export function formatCliError(error: unknown): {
 }
 
 export async function main(options: MainOptions = {}): Promise<void> {
+  // A miss is answered here rather than by the SDK, whose "Unknown command"
+  // names nothing to run instead — see src/redirect.ts for why that matters.
+  const argv = options.argv ?? process.argv.slice(2);
+  const redirect = redirectArgv(argv, Object.keys(COMMANDS));
+  if (redirect) {
+    const formatted = formatCliError(redirect);
+    (options.stdout ?? process.stdout).write(formatted.output);
+    process.exitCode = formatted.exitCode;
+    return;
+  }
+
   await runAxiCli({
     ...(options.argv ? { argv: options.argv } : {}),
     description: DESCRIPTION,

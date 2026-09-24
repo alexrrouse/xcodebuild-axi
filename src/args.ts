@@ -1,4 +1,5 @@
 import { AxiError } from "./errors.js";
+import { nearest, xcodebuildFlagHint } from "./redirect.js";
 
 /**
  * Flag parsing with AXI principle 6's "fail loud on unrecognized input".
@@ -134,14 +135,19 @@ export function rejectUnknownFlags(
 
     if (!known.includes(bare)) {
       const renamed = RENAMED_FLAGS[bare];
+      const xcodebuild = bare.startsWith("--")
+        ? undefined
+        : xcodebuildFlagHint(command.split(" ")[0] as string, args);
+      const typo = nearest(bare, known)[0];
       throw new AxiError(
         `unknown flag ${bare} for \`${command}\``,
         "VALIDATION_ERROR",
         renamed
           ? [renamed]
-          : [
+          : (xcodebuild ?? [
+              ...(typo ? [`did you mean ${typo}?`] : []),
               `valid flags for \`${command}\`: ${known.join(", ")} (--help always allowed)`,
-            ],
+            ]),
       );
     }
 

@@ -6,6 +6,62 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **`run`** builds, boots the simulator, installs, and launches the app in one
+  step, with its `print()` output going to a console file it names. `--env
+KEY=VALUE` and `--arg` reach the app; `--no-build` relaunches what is already
+  built. A Mac scheme opens the app instead.
+- **`sim logs`** reads the app's own unified log lines — only what its binary
+  wrote, not the hundreds of system lines that share its process. `--last`,
+  `--max` and `--system` narrow or widen it, and the full output lands in a
+  file.
+- **A wrong guess is answered with the right command.** `xcodebuild-axi
+-showsdks`, `xcodebuild-axi xcodebuild -scheme MyApp test`,
+  `xcodebuild-axi simctl io booted screenshot`, a typo like `buidl`, and plain
+  words like `screenshot` or `logs` all answer with this tool's command for
+  them. Where a switch really is not wrapped, the error prints the exact raw
+  `xcodebuild` or `xcrun simctl` command to run instead. A single-dash flag
+  on a command is answered with its two-dash spelling, and an unknown flag
+  names the nearest valid one.
+- **`sim` subcommands no longer need a name when one simulator is booted**, and
+  accept `booted` for it. Commands that destroy state — boot, shutdown, erase,
+  delete — still require one.
+
+### Changed
+
+- **The default destination is a booted simulator**, when there is one, before
+  the newest. Picking a different one than the agent just booted meant a second
+  simulator starting behind its back.
+- **`test` no longer collects diagnostics on failure unless `--diagnostics` is
+  passed.** xcodebuild's default ran `simctl diagnose` after a single failing
+  assertion, with a ten-minute timeout; the same run now takes seconds.
+
+### Fixed
+
+- **Xcode 27's destination list is read correctly.** Its headings changed, and
+  every incompatible simulator was being treated as runnable, so builds failed
+  against a device that could never run them. The reason xcodebuild gives for
+  each ineligible destination now reaches `destinations --all` and the
+  `--device` refusal, with a `platforms download` command when the deployment
+  target is the problem.
+- **A scheme with nothing runnable still builds.** `build`, `analyze`,
+  `archive` and `clean` fall back to the generic simulator destination instead
+  of refusing; `test` and `run` explain what to install.
+- **A Mac "Designed for iPad" destination is never picked by default.** It
+  needs signing, and landing on it silently turned a simulator run into a Mac
+  one.
+- **The re-run hint after a failing test works as printed.** It dropped
+  `--scheme` and the test target, so it either refused or matched nothing. A
+  run whose `--only` or `--skip` matches no tests now says so, rather than
+  reporting "0 passed / 0 failed" as a bare failure.
+- **`tests` reports a bundle it could not enumerate** with the innermost
+  reason, rather than counting it as one test.
+- **`sim` failures report the reason, not simctl's framing.** The first line of
+  a simctl error is usually "An error was encountered processing the command".
+- **`sim install` and `sim launch` find the app, not a share extension or test
+  bundle** in a scheme that builds several products.
+
 ## [0.1.15] - 2026-09-22
 
 ### Fixed
