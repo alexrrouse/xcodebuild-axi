@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { platformOf, xcodebuildComplaint } from "../src/commands/settings.js";
+import {
+  platformOf,
+  valuesOf,
+  xcodebuildComplaint,
+} from "../src/commands/settings.js";
 
 describe("platformOf", () => {
   // These settings are destination-dependent: BUILT_PRODUCTS_DIR resolves to
@@ -36,5 +40,37 @@ describe("xcodebuildComplaint", () => {
   it("says nothing when xcodebuild did not", () => {
     expect(xcodebuildComplaint("")).toEqual([]);
     expect(xcodebuildComplaint("note: something unrelated\n")).toEqual([]);
+  });
+});
+
+describe("valuesOf", () => {
+  // `--value` exists to be interpolated into a shell variable, so an answer
+  // it can't give has to fail rather than print an empty line.
+  it("prints each value on its own line, in --key order", () => {
+    expect(
+      valuesOf(
+        {
+          BUILT_PRODUCTS_DIR: "/dd/Debug-iphonesimulator",
+          PRODUCT_NAME: "MyApp",
+        },
+        ["PRODUCT_NAME", "BUILT_PRODUCTS_DIR"],
+      ),
+    ).toBe("MyApp\n/dd/Debug-iphonesimulator");
+  });
+
+  it("refuses a key that is not set, naming it", () => {
+    expect(() =>
+      valuesOf({ PRODUCT_NAME: "MyApp" }, ["PRODUCT_NAME", "NOPE"]),
+    ).toThrow(/NOPE/);
+  });
+
+  it("refuses an empty value rather than printing a blank line", () => {
+    expect(() =>
+      valuesOf({ CODE_SIGN_IDENTITY: "" }, ["CODE_SIGN_IDENTITY"]),
+    ).toThrow(/CODE_SIGN_IDENTITY/);
+  });
+
+  it("refuses when xcodebuild resolved no targets at all", () => {
+    expect(() => valuesOf({}, ["BUILT_PRODUCTS_DIR"])).toThrow(/no targets/);
   });
 });

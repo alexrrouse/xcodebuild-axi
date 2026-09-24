@@ -15,11 +15,13 @@ import {
 export const SETTINGS_HELP = `usage: xcodebuild-axi settings [flags]
 Reads resolved build settings. Asking for the keys you want turns a 40 KB dump
 into a few lines.
-flags[18]:
+flags[19]:
   --scheme <name>         scheme to resolve against (required only when the project has more than one)
   --target <name>         resolve a target instead of a scheme; repeatable (project only)
   --all-targets           resolve every target in the project (project only)
   --key <NAME>            setting to read; repeatable or comma-separated
+  --value                 with --key: print only the values, one per line in --key order,
+                          for a shell variable; fails on a key that is unset or empty
   --configuration <name>  build configuration to resolve against
   --device <name>         resolve against a simulator or device by name, e.g. "iPhone 17 Pro"
   --destination <spec>    raw xcodebuild destination specifier, passed through untouched
@@ -48,12 +50,15 @@ note:
   reports the compiler invocation the indexer builds per source file. The raw
   payload measured 216 KB on a 12-scheme workspace, so without --file it
   reports only which targets have index settings and how many files each has.
+  --value drops the report, and with it the platform line -- so pass --device
+  when the key is a path, or the value describes a device build.
 examples:
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER,MARKETING_VERSION
   xcodebuild-axi settings --target MyApp --key SWIFT_VERSION
   xcodebuild-axi settings --scheme MyApp --setting SWIFT_STRICT_CONCURRENCY=complete --key SWIFT_STRICT_CONCURRENCY
   xcodebuild-axi settings --scheme MyApp --key SWIFT_VERSION
   xcodebuild-axi settings --scheme MyApp --device "iPhone 17 Pro" --key BUILT_PRODUCTS_DIR
+  APP="$(xcodebuild-axi settings --scheme MyApp --device "iPhone 17 Pro" --key BUILT_PRODUCTS_DIR --value)/MyApp.app"
   xcodebuild-axi settings --scheme MyApp --for-index --file MyApp/AppFeature.swift
 `;
 
@@ -62,6 +67,7 @@ export const SETTINGS_FLAGS = [
   "--target",
   "--all-targets",
   "--key",
+  "--value",
   "--configuration",
   "--device",
   "--destination",
@@ -100,6 +106,17 @@ export async function settingsCommand(args: string[]): Promise<string> {
   const keys = getListFlag(args, "--key");
   const all = hasFlag(args, "--all");
   const forIndex = hasFlag(args, "--for-index");
+  const valueOnly = hasFlag(args, "--value");
+
+  if (valueOnly && (keys.length === 0 || all || forIndex)) {
+    throw new AxiError(
+      "--value prints the values of the --key settings, and nothing else",
+      "VALIDATION_ERROR",
+      [
+        'APP="$(xcodebuild-axi settings --scheme MyApp --device "iPhone 17 Pro" --key BUILT_PRODUCTS_DIR --value)/MyApp.app"',
+      ],
+    );
+  }
 
   if (keys.length === 0 && !all && !forIndex) {
     throw new AxiError("settings needs --key or --all", "VALIDATION_ERROR", [
@@ -226,6 +243,8 @@ export async function settingsCommand(args: string[]): Promise<string> {
 
   const settings = parseSettings(stdout);
 
+  if (valueOnly) return valuesOf(settings, keys);
+
   const platform = platformOf(settings);
   // `scheme: MyApp` is a lie when targets were named, and the label is the
   // reader's only clue about which question was answered.
@@ -287,6 +306,41 @@ export async function settingsCommand(args: string[]): Promise<string> {
   }
 
   return renderOutput(blocks);
+}
+
+/**
+ * The `--value` answer: each key's value on its own line, in the order asked.
+ *
+ * Its whole use is `VAR="$(… --value)"`, where an empty line interpolates into
+ * a plausible wrong path -- "$(…)/MyApp.app" becomes "/MyApp.app". So a key
+ * that is unset, or set to nothing, is an error naming it, as is a scheme that
+ * resolved no targets.
+ */
+export function valuesOf(
+  settings: Record<string, unknown>,
+  keys: string[],
+): string {
+  if (Object.keys(settings).length === 0) {
+    throw new AxiError(
+      "xcodebuild resolved no targets to read settings from",
+      "VALIDATION_ERROR",
+      ["Pass --destination <spec> to resolve against another platform"],
+    );
+  }
+  const empty = keys.filter((key) => {
+    const value = settings[key];
+    return value === undefined || value === null || String(value) === "";
+  });
+  if (empty.length > 0) {
+    throw new AxiError(
+      `unset or empty: ${empty.join(", ")}`,
+      "VALIDATION_ERROR",
+      [
+        "Run without --value to see the rest of the report, or with --all for every key",
+      ],
+    );
+  }
+  return keys.map((key) => String(settings[key])).join("\n");
 }
 
 /**
