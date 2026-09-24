@@ -6,6 +6,13 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **`settings --value`** prints only the values of the `--key` settings, one
+  per line in `--key` order, for `VAR="$(…)"`. A key that is unset or empty is
+  an error naming it rather than a blank line, which would interpolate into a
+  plausible wrong path. Closes #7.
+
 ### Fixed
 
 - **`test` names the compile error when a package's test target fails to
