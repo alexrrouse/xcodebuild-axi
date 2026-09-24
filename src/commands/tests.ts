@@ -123,6 +123,22 @@ export async function testsCommand(args: string[]): Promise<string> {
     );
   }
 
+  // ⚠️ An enumeration that failed still writes a file: `errors` says why, and
+  // `values` holds the bare test bundle name. Counting that as one test is a
+  // wrong answer shaped like a right one.
+  const problems = (parsed.errors ?? []).map(String);
+  if (problems.length > 0) {
+    throw new AxiError(
+      `xcodebuild could not enumerate the tests in ${context.scheme}`,
+      "UNKNOWN",
+      [
+        innermost(problems[0] as string),
+        ...(context.destination ? [`destination: ${context.destination}`] : []),
+        `full transcript: ${tildePath(run.logPath)}`,
+      ],
+    );
+  }
+
   const filter = getFlag(args, "--filter")?.toLowerCase();
   const max = getIntFlag(args, "--max") ?? 40;
 
@@ -234,4 +250,13 @@ function readEnumeration(path: string): EnumerationFile | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The cause at the bottom of xcodebuild's nested "(Underlying Error: …)"
+ * chain, which is the only part that names what to fix.
+ */
+export function innermost(message: string): string {
+  const parts = message.split("(Underlying Error: ");
+  return (parts[parts.length - 1] ?? message).replace(/\)+\s*$/, "").trim();
 }

@@ -92,7 +92,7 @@ export const SHARED_BUILD_VALUE_FLAGS = [
 export const BUILD_FLAG_HELP = `  --scheme <name>         scheme to act on (required only when the project has more than one)
   --target <name>         build a target instead of a scheme; repeatable (project only)
   --all-targets           build every target in the project (project only)
-  --device <name>         simulator or device name, e.g. "iPhone 17 Pro" (default: newest simulator)
+  --device <name>         simulator or device name, e.g. "iPhone 17 Pro" (default: a booted simulator, else the newest)
   --destination <spec>    raw xcodebuild destination specifier, passed through untouched
   --configuration <name>  build configuration (default: the scheme's own)
   --sdk <name>            base SDK, e.g. iphonesimulator
@@ -200,6 +200,8 @@ export interface BuildContext {
   subject: Subject;
   /** Human-readable destination, or undefined when the command skipped one. */
   destination: string | undefined;
+  /** What was passed to `-destination`, for a command that acts on it afterwards. */
+  destinationSpecifier: string | undefined;
   /** Everything before the action word. */
   xcodebuildArgs: string[];
   maxErrors: number;
@@ -207,6 +209,13 @@ export interface BuildContext {
   /** Where to write the log and result bundle, when the caller chose. */
   artifactsDir: string | undefined;
 }
+
+/**
+ * Commands that compile and run nothing, so a generic destination is as good
+ * as a device when no device is eligible. `test`, `tests` and `run` are not
+ * here: each needs something to run on.
+ */
+const COMPILE_ONLY = new Set(["build", "analyze", "archive", "clean"]);
 
 export interface ResolveBuildContextOptions {
   args: string[];
@@ -247,6 +256,7 @@ export async function resolveBuildContext(
           scheme,
           ...(device !== undefined ? { device } : {}),
           ...(rawDestination !== undefined ? { raw: rawDestination } : {}),
+          allowGeneric: COMPILE_ONLY.has(command),
         })
       : undefined;
 
@@ -328,6 +338,7 @@ export async function resolveBuildContext(
     scheme,
     subject,
     destination: destination?.described,
+    destinationSpecifier: destination?.specifier,
     xcodebuildArgs,
     maxErrors: getIntFlag(args, "--max-errors") ?? 20,
     full: hasFlag(args, "--full"),
@@ -400,6 +411,8 @@ export interface ReportActionOptions {
   extra?: Record<string, unknown>;
   /** Report analyzer warnings as the payload rather than as a count. */
   analyzer?: boolean;
+  /** Next steps to offer when the action succeeded. */
+  help?: string[];
 }
 
 /**
@@ -499,7 +512,7 @@ export async function reportAction(
     }),
   );
 
-  const hints: string[] = [];
+  const hints: string[] = succeeded ? [...(options.help ?? [])] : [];
   if (errorBlock.hidden > 0) {
     hints.push(
       `Run \`xcodebuild-axi ${options.command} --max-errors ${errors.length}\` to list all ${errors.length} errors`,

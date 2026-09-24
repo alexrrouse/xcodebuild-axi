@@ -13,6 +13,7 @@ import {
   readTestSummary,
   toDiagnostics,
   describeDevice,
+  type TestFailure,
   type TestSummary,
 } from "../xcresult.js";
 import { readCoverage, percent } from "../xccov.js";
@@ -51,7 +52,7 @@ ${BUILD_FLAG_HELP}
   --until-failure        repeat until something fails, up to --iterations (default 100)
   --language <iso639>    run in this language
   --region <iso3166>     run in this region
-  --diagnostics          collect verbose diagnostics on failure
+  --diagnostics          collect a sysdiagnose on failure (off by default — it adds minutes)
   --perf-diagnostics     collect performance traces and memgraphs for performance tests
   --relaunch             relaunch the process between repetitions
   --only-configuration <name>  run only this test configuration; repeatable
@@ -206,9 +207,12 @@ function testArgs(args: string[], coverage: boolean): string[] {
     ...(hasFlag(args, "--until-failure") ? ["-run-tests-until-failure"] : []),
     ...(language ? ["-testLanguage", language] : []),
     ...(region ? ["-testRegion", region] : []),
-    ...(hasFlag(args, "--diagnostics")
-      ? ["-collect-test-diagnostics", "on-failure"]
-      : []),
+    // ⚠️ xcodebuild's own default is on-failure, not never: one failing
+    // assertion starts a `simctl diagnose` with a ten-minute timeout, and the
+    // report waits for it. So off unless asked for, which is what the flag
+    // always claimed.
+    "-collect-test-diagnostics",
+    hasFlag(args, "--diagnostics") ? "on-failure" : "never",
     ...(hasFlag(args, "--perf-diagnostics")
       ? ["-enablePerformanceTestsDiagnostics", "YES"]
       : []),
@@ -374,11 +378,19 @@ async function renderTestSummary(
   );
 
   const hints: string[] = [];
+  // xcodebuild fails a run whose filters matched nothing, and says only that
+  // it failed. Name the cause, since "0 passed / 0 failed" reads like a crash.
+  if (passed + failed + skipped === 0) {
+    hints.push(
+      "No tests ran — an --only or --skip identifier matched nothing. They are spelled Target/Class/method",
+      `Run \`xcodebuild-axi tests ${context.subject.rerun}\` for the identifiers this scheme has`,
+    );
+  }
   if (failures.length > 0) {
-    const first = failures[0]?.testIdentifierString;
+    const first = rerunIdentifier(failures[0]);
     if (first) {
       hints.push(
-        `Run \`xcodebuild-axi test --only ${first}\` to re-run just this failure`,
+        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${first}\` to re-run just this failure`,
       );
     }
     hints.push(
@@ -394,4 +406,22 @@ async function renderTestSummary(
 
   if (!succeeded) process.exitCode = 1;
   return renderOutput(blocks);
+}
+
+/**
+ * The identifier `-only-testing` needs for one failure.
+ *
+ * `testIdentifierString` omits the test target (`CheckoutTests/testFails()`),
+ * and `-only-testing` without one matches nothing — the run then reports zero
+ * tests and a failure with no reason. The target lives beside it in
+ * `targetName`, so the two are joined here. The trailing `()` is dropped for
+ * readability; xcodebuild accepts either spelling.
+ */
+export function rerunIdentifier(
+  failure: TestFailure | undefined,
+): string | undefined {
+  const id = failure?.testIdentifierString?.replace(/\(\)$/, "");
+  if (!id) return undefined;
+  const target = failure?.targetName;
+  return target && !id.startsWith(`${target}/`) ? `${target}/${id}` : id;
 }

@@ -5,7 +5,8 @@ import { AxiError } from "../errors.js";
 import { resolveProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
 import { capturePath, runMetadata } from "../xcodebuild.js";
-import { parseSettings } from "./settings.js";
+import { parseAppSettings } from "./settings.js";
+import { simSubcommandRedirect } from "../redirect.js";
 import {
   findDeviceType,
   findSimulator,
@@ -14,6 +15,7 @@ import {
   listSimulators,
   readAppInfo,
   simctl,
+  failureReason,
   type DeviceType,
   type InstalledApp,
   type Simulator,
@@ -38,7 +40,7 @@ import {
 
 export const SIM_HELP = `usage: xcodebuild-axi sim [subcommand] [name|udid] [app] [flags]
 Inspects and drives simulators. With no subcommand, lists the booted ones.
-subcommands[22]:
+subcommands[23]:
   list                 every available simulator
   boot <name|udid>     boot one, or no-op if it is already booted
   shutdown <name|udid> shut one down, or no-op if it already is; --all for every booted one
@@ -69,12 +71,14 @@ subcommands[22]:
                        where an app's files are on this machine
   pasteboard <name|udid> [text]    read what is on its pasteboard, or put
                        something there
-flags[15]:
+  logs <name|udid> [bundle-id]     the app's own unified log lines, newest
+                       last; --system for everything its process logged
+flags[17]:
   --runtime <name>     filter the list, e.g. "iOS 26.5"
   --booted             list only booted simulators
   --all                apply shutdown or erase to every eligible simulator
-  --system             include Apple's own apps in \`apps\`
-  --scheme <name>      which scheme's app to install or launch
+  --system             include Apple's own apps in \`apps\`, or system lines in \`logs\`
+  --scheme <name>      which scheme's app to install, launch or read logs from
   --relaunch           with launch: stop a running copy first
   --unavailable        with delete: every device whose runtime is gone
   --seconds <n>        with video: how long to record (default: 10)
@@ -85,11 +89,15 @@ flags[15]:
   --battery <0-100>    with status-bar: the battery level
   --bars <0-4>         with status-bar: wifi and cellular signal strength
   --speed <m/s>        with location: how fast to move between waypoints
+  --last <duration>    with logs: how far back, e.g. 30s, 5m, 1h (default: 5m)
+  --max <n>            with logs: lines to print, newest kept (default: 50)
 note:
   install, launch, terminate and uninstall take the app as a path or a bundle
   id, and work it out from the project in the current directory when it is
   left off — the point of them is the loop from a build to a running app, and
   a DerivedData path is not something worth typing.
+  <name|udid> can be left off, or written \`booted\`, when exactly one
+  simulator is booted. boot, shutdown, erase and delete always need one.
 examples:
   xcodebuild-axi sim
   xcodebuild-axi sim list --runtime "iOS 26.5"
@@ -107,6 +115,7 @@ examples:
   xcodebuild-axi sim media "iPhone 17 Pro" fixtures/receipt.png
   xcodebuild-axi sim container "iPhone 17 Pro" data
   xcodebuild-axi sim pasteboard "iPhone 17 Pro" "MyApp-1a2b3c4d"
+  xcodebuild-axi sim logs "iPhone 17 Pro" --last 1m
 `;
 
 export const SIM_FLAGS = [
@@ -125,6 +134,8 @@ export const SIM_FLAGS = [
   "--battery",
   "--bars",
   "--speed",
+  "--last",
+  "--max",
 ] as const;
 const VALUE_FLAGS = [
   "--runtime",
@@ -136,6 +147,8 @@ const VALUE_FLAGS = [
   "--battery",
   "--bars",
   "--speed",
+  "--last",
+  "--max",
 ] as const;
 
 export async function simCommand(args: string[]): Promise<string> {
@@ -189,15 +202,20 @@ export async function simCommand(args: string[]): Promise<string> {
       return media(target, words.slice(2));
     case "container":
       return container(args, target, app, extra);
+    case "logs":
+      return logs(args, target, app);
     case "pasteboard":
       return pasteboard(target, words.slice(2).join(" ") || undefined);
     default:
-      throw new AxiError(
-        `Unknown sim subcommand '${subcommand}'`,
-        "VALIDATION_ERROR",
-        [
-          "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui, location, media, container, pasteboard",
-        ],
+      throw (
+        simSubcommandRedirect(subcommand ?? "", words.slice(1)) ??
+        new AxiError(
+          `Unknown sim subcommand '${subcommand}'`,
+          "VALIDATION_ERROR",
+          [
+            "valid subcommands are list, boot, shutdown, erase, apps, install, launch, terminate, uninstall, create, delete, screenshot, video, open, privacy, push, status-bar, ui, location, media, container, pasteboard, logs",
+          ],
+        )
       );
   }
 }
@@ -266,17 +284,32 @@ async function listAll(args: string[]): Promise<string> {
   ]);
 }
 
+const EXPLICIT_ONLY = new Set(["boot", "shutdown", "erase", "delete"]);
+
 async function resolveTarget(
   target: string | undefined,
   verb: string,
 ): Promise<Simulator> {
   if (target === undefined) {
+    // One booted simulator is the one meant; asking would cost a round trip
+    // to learn nothing. Never for a verb that changes the device's state —
+    // erasing one nobody named is not a default anyone wants.
+    const booted = EXPLICIT_ONLY.has(verb)
+      ? []
+      : (await listSimulators()).filter(
+          (simulator) => simulator.state === "booted",
+        );
+    if (booted.length === 1 && booted[0]) return booted[0];
     throw new AxiError(
-      `sim ${verb} needs a simulator name or udid`,
+      booted.length > 1
+        ? `sim ${verb} needs a simulator name — ${booted.length} are booted`
+        : `sim ${verb} needs a simulator name or udid`,
       "VALIDATION_ERROR",
       [
-        `xcodebuild-axi sim ${verb} "iPhone 17 Pro"`,
-        "Run `xcodebuild-axi sim list` to see the names",
+        `xcodebuild-axi sim ${verb} "${booted[0]?.name ?? "iPhone 17 Pro"}"`,
+        booted.length > 1
+          ? `booted: ${booted.map((simulator) => simulator.name).join(", ")}`
+          : "Run `xcodebuild-axi sim list` to see the names",
       ],
     );
   }
@@ -311,7 +344,7 @@ async function boot(target: string | undefined): Promise<string> {
   const { exitCode, stderr } = await simctl(["boot", simulator.udid]);
   if (exitCode !== 0 && !/current state: Booted/i.test(stderr)) {
     throw new AxiError(`Could not boot ${simulator.name}`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
 
@@ -353,7 +386,7 @@ async function shutdown(
   const { exitCode, stderr } = await simctl(["shutdown", simulator.udid]);
   if (exitCode !== 0 && !/current state: Shutdown/i.test(stderr)) {
     throw new AxiError(`Could not shut down ${simulator.name}`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
   return renderFields({ sim: `${simulator.name} shut down` });
@@ -367,7 +400,7 @@ async function erase(
     const { exitCode, stderr } = await simctl(["erase", "all"]);
     if (exitCode !== 0) {
       throw new AxiError("Could not erase all simulators", "UNKNOWN", [
-        firstLine(stderr),
+        failureReason(stderr),
       ]);
     }
     return renderFields({ sim: "all shut-down simulators erased" });
@@ -386,7 +419,7 @@ async function erase(
       );
     }
     throw new AxiError(`Could not erase ${simulator.name}`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
   return renderFields({ sim: `${simulator.name} erased` });
@@ -473,7 +506,7 @@ async function install(
     throw new AxiError(
       `Could not install ${tildePath(path)} on ${simulator.name}`,
       "UNKNOWN",
-      [firstLine(stderr)],
+      [failureReason(stderr)],
     );
   }
 
@@ -522,7 +555,7 @@ async function launch(
       );
     }
     throw new AxiError(`Could not launch '${bundleId}'`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
 
@@ -565,7 +598,7 @@ async function terminate(
       });
     }
     throw new AxiError(`Could not terminate '${bundleId}'`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
 
@@ -595,7 +628,7 @@ async function uninstall(
   ]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not uninstall '${bundleId}'`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
   return renderFields({ uninstalled: bundleId, sim: simulator.name });
@@ -643,7 +676,7 @@ async function create(
 
   if (exitCode !== 0) {
     throw new AxiError(`Could not create '${name}'`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
       ...(runtime
         ? ["Run `xcodebuild-axi platforms` to see the runtimes installed"]
         : []),
@@ -677,7 +710,7 @@ async function remove(
     const { exitCode, stderr } = await simctl(["delete", "unavailable"]);
     if (exitCode !== 0) {
       throw new AxiError("Could not delete unavailable devices", "UNKNOWN", [
-        firstLine(stderr),
+        failureReason(stderr),
       ]);
     }
     return renderFields({
@@ -703,7 +736,7 @@ async function remove(
     const { exitCode, stderr } = await simctl(["delete", "all"]);
     if (exitCode !== 0) {
       throw new AxiError("Could not delete the simulators", "UNKNOWN", [
-        firstLine(stderr),
+        failureReason(stderr),
       ]);
     }
     return renderFields({ deleted: all.length });
@@ -713,7 +746,7 @@ async function remove(
   const { exitCode, stderr } = await simctl(["delete", simulator.udid]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not delete ${simulator.name}`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
   return renderFields({ deleted: simulator.name, udid: simulator.udid });
@@ -736,7 +769,7 @@ async function screenshot(
   ]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not photograph ${simulator.name}`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
 
@@ -837,7 +870,7 @@ async function openUrl(
   const { exitCode, stderr } = await simctl(["openurl", simulator.udid, url]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not open ${url}`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
       "A scheme no installed app claims is refused by the device, not by this tool",
     ]);
   }
@@ -905,7 +938,7 @@ async function pasteboard(
       throw new AxiError(
         `Could not read the pasteboard on ${simulator.name}`,
         "UNKNOWN",
-        [firstLine(stderr)],
+        [failureReason(stderr)],
       );
     }
     const contents = stdout.replace(/\n$/, "");
@@ -931,7 +964,7 @@ async function pasteboard(
     throw new AxiError(
       `Could not write to the pasteboard on ${simulator.name}`,
       "UNKNOWN",
-      [firstLine(stderr)],
+      [failureReason(stderr)],
     );
   }
 
@@ -958,7 +991,7 @@ async function location(
   places: string[],
   args: string[],
 ): Promise<string> {
-  const simulator = await requireBooted(target, "locate");
+  const simulator = await requireBooted(target, "location");
 
   if (places.length === 0) {
     const { stdout } = await simctl(["location", simulator.udid, "list"]);
@@ -1033,7 +1066,7 @@ async function runLocation(
     throw new AxiError(
       `Could not set the location on ${simulator.name}`,
       "VALIDATION_ERROR",
-      [firstLine(stderr) || firstLine(stdout)],
+      [failureReason(stderr) || failureReason(stdout)],
     );
   }
 }
@@ -1091,7 +1124,7 @@ async function media(
   target: string | undefined,
   paths: string[],
 ): Promise<string> {
-  const simulator = await requireBooted(target, "add media to");
+  const simulator = await requireBooted(target, "media");
 
   if (paths.length === 0) {
     throw new AxiError("sim media needs a file to add", "VALIDATION_ERROR", [
@@ -1166,7 +1199,7 @@ async function container(
   first: string | undefined,
   second: string | undefined,
 ): Promise<string> {
-  const simulator = await requireBooted(target, "inspect");
+  const simulator = await requireBooted(target, "container");
 
   // `sim container <device> data` and `sim container <device> <id> data` both
   // read naturally, so the container word is recognised wherever it lands.
@@ -1246,7 +1279,7 @@ async function readContainer(
     throw new AxiError(
       `${simulator.name} has no ${kind} container for '${bundleId}'`,
       "NOT_FOUND",
-      [firstLine(stderr)],
+      [failureReason(stderr)],
     );
   }
   return stdout.trim();
@@ -1330,7 +1363,7 @@ async function privacy(
     throw new AxiError(
       `Could not ${action} ${service} on ${simulator.name}`,
       "UNKNOWN",
-      [firstLine(stderr)],
+      [failureReason(stderr)],
     );
   }
 
@@ -1415,7 +1448,7 @@ async function push(
   ]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not send the push to '${bundleId}'`, "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
       "A payload has to parse as JSON, carry an `aps` dictionary, and stay under 4096 bytes",
     ]);
   }
@@ -1516,7 +1549,7 @@ async function statusBar(
     ]);
     if (exitCode !== 0) {
       throw new AxiError("Could not clear the status bar", "UNKNOWN", [
-        firstLine(stderr),
+        failureReason(stderr),
       ]);
     }
     return renderFields({ status_bar: "cleared", sim: simulator.name });
@@ -1558,7 +1591,7 @@ async function statusBar(
   ]);
   if (exitCode !== 0) {
     throw new AxiError("Could not override the status bar", "UNKNOWN", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
 
@@ -1725,7 +1758,7 @@ async function ui(
   ]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not set ${option}`, "VALIDATION_ERROR", [
-      firstLine(stderr),
+      failureReason(stderr),
     ]);
   }
 
@@ -1755,7 +1788,7 @@ async function requireBooted(
   const simulator = await resolveTarget(target, verb);
   if (simulator.state !== "booted") {
     throw new AxiError(
-      `${simulator.name} is not booted, so nothing can be ${verb}ed on it`,
+      `${simulator.name} is not booted, so \`sim ${verb}\` has nothing to act on`,
       "VALIDATION_ERROR",
       [`Run \`xcodebuild-axi sim boot "${simulator.name}"\` first`],
     );
@@ -1806,7 +1839,7 @@ async function productOf(
     "-json",
   ]);
 
-  const settings = exitCode === 0 ? parseSettings(stdout) : {};
+  const settings = exitCode === 0 ? parseAppSettings(stdout) : {};
   const dir = settings["BUILT_PRODUCTS_DIR"];
   const product = settings["FULL_PRODUCT_NAME"];
   const bundleId = settings["PRODUCT_BUNDLE_IDENTIFIER"];
@@ -1817,7 +1850,7 @@ async function productOf(
       "VALIDATION_ERROR",
       [
         `xcodebuild-axi sim ${verb} "${simulator.name}" <${verb === "install" ? "path.app" : "bundle-id"}>`,
-        ...(exitCode !== 0 ? [firstLine(stderr)] : []),
+        ...(exitCode !== 0 ? [failureReason(stderr)] : []),
       ],
     );
   }
@@ -1825,6 +1858,172 @@ async function productOf(
   return { appPath: `${dir}/${product}`, bundleId };
 }
 
-function firstLine(text: string): string {
-  return text.trim().split("\n")[0] ?? "";
+/**
+ * The app's own unified-log lines.
+ *
+ * `process == "MyApp"` is the obvious predicate and the wrong one: the first
+ * launch of a trivial app logged one line of its own and several hundred from
+ * CoreFoundation, RunningBoard and FrontBoard, all attributed to its process.
+ * `senderImagePath` is the binary that emitted the line, so matching it
+ * against the app bundle keeps the app, its embedded frameworks and its
+ * extensions, and nothing Apple wrote. `--system` widens it back to the
+ * process for when the system's side of the story is the point — a crash,
+ * a refused entitlement.
+ *
+ * The full answer goes to a file; the newest `--max` lines are printed,
+ * because a log read is almost always "what just happened".
+ */
+async function logs(
+  args: string[],
+  target: string | undefined,
+  app: string | undefined,
+): Promise<string> {
+  const simulator = await requireBooted(target, "logs");
+  const bundleId = app ?? (await productOf(args, simulator, "logs")).bundleId;
+  const last = getFlag(args, "--last") ?? "5m";
+  if (!/^\d+[smhd]?$/.test(last)) {
+    throw new AxiError(
+      `--last expects a duration like 30s, 5m or 1h, got '${last}'`,
+      "VALIDATION_ERROR",
+      [`xcodebuild-axi sim logs "${simulator.name}" --last 5m`],
+    );
+  }
+  const max = getIntFlag(args, "--max") ?? 50;
+
+  const installed = (await listApps(simulator.udid)).find(
+    (entry) => entry.bundleId === bundleId,
+  );
+  if (!installed?.path) {
+    throw new AxiError(
+      `'${bundleId}' is not installed on ${simulator.name}`,
+      "NOT_FOUND",
+      [
+        `Run \`xcodebuild-axi run --device "${simulator.name}"\` to build, install and launch it`,
+      ],
+    );
+  }
+  const bundle = `/${basename(installed.path)}/`;
+  const field = hasFlag(args, "--system")
+    ? "processImagePath"
+    : "senderImagePath";
+
+  const { stdout, stderr, exitCode } = await simctl([
+    "spawn",
+    simulator.udid,
+    "log",
+    "show",
+    "--style",
+    "compact",
+    "--info",
+    "--debug",
+    "--last",
+    last,
+    "--predicate",
+    `${field} CONTAINS "${bundle}"`,
+  ]);
+  if (exitCode !== 0) {
+    throw new AxiError(
+      `Could not read the log on ${simulator.name}`,
+      "UNKNOWN",
+      [failureReason(stderr)],
+    );
+  }
+
+  const entries = parseLogLines(stdout);
+  const file = capturePath(simulator.name, "log");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, stdout);
+
+  const shown = entries.slice(-max);
+  const name = /^[\w.-]+$/.test(simulator.name)
+    ? simulator.name
+    : `"${simulator.name}"`;
+  return renderOutput([
+    renderFields({
+      app: bundleId,
+      sim: simulator.name,
+      window: `last ${last}`,
+      lines:
+        shown.length < entries.length
+          ? `${shown.length} of ${entries.length} (newest)`
+          : entries.length,
+    }),
+    entries.length > 0
+      ? renderList(
+          "log",
+          shown.map((entry) => ({
+            ...entry,
+            message: truncate(entry.message, 400).text,
+          })),
+        )
+      : "",
+    renderFields({ file: tildePath(file) }),
+    renderHelp([
+      ...(entries.length === 0
+        ? [
+            "Nothing logged through os_log or Logger in that window; print() output goes to the console file `xcodebuild-axi run` reports",
+            hasFlag(args, "--system")
+              ? `Run \`xcodebuild-axi sim logs ${name} ${bundleId} --last 1h\` to look further back`
+              : `Run \`xcodebuild-axi sim logs ${name} ${bundleId} --system\` to include what the system logged for it`,
+          ]
+        : []),
+      ...(shown.length < entries.length
+        ? [
+            `Run \`xcodebuild-axi sim logs ${name} ${bundleId} --max ${entries.length}\` to print all ${entries.length}`,
+          ]
+        : []),
+    ]),
+  ]);
+}
+
+const LOG_LEVELS: Record<string, string> = {
+  Df: "default",
+  I: "info",
+  In: "info",
+  Db: "debug",
+  E: "error",
+  Er: "error",
+  F: "fault",
+  Ft: "fault",
+  A: "activity",
+};
+
+/**
+ * `log show --style compact` lines, as rows.
+ *
+ * `2026-09-22 15:15:39.751 Df MyApp[42552:24bde94] [com.example.MyApp:app] text`
+ * — the date is dropped (the window is minutes), the pid and thread are
+ * noise, and a message that runs onto following lines is folded back into
+ * the line it belongs to.
+ */
+export function parseLogLines(
+  text: string,
+): Array<{ time: string; level: string; category: string; message: string }> {
+  const out: Array<{
+    time: string;
+    level: string;
+    category: string;
+    message: string;
+  }> = [];
+  const line =
+    /^\d{4}-\d\d-\d\d (\d\d:\d\d:\d\d\.\d+) (\w+)\s+\S+?\[\d+:\w+\] (?:\[([^\]]+)\] |\(([^)]+)\) )?(.*)$/;
+  for (const raw of text.split("\n")) {
+    const match = line.exec(raw);
+    if (match) {
+      out.push({
+        time: match[1] as string,
+        level: LOG_LEVELS[match[2] as string] ?? (match[2] as string),
+        category: match[3] ?? match[4] ?? "",
+        message: (match[5] ?? "").trim(),
+      });
+    } else if (
+      out.length > 0 &&
+      raw.trim().length > 0 &&
+      !/^Timestamp\s/.test(raw)
+    ) {
+      const previous = out[out.length - 1] as { message: string };
+      previous.message += `\n${raw}`;
+    }
+  }
+  return out;
 }

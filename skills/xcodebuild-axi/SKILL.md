@@ -22,9 +22,9 @@ npx -y xcodebuild-axi
 
 ```
 usage: xcodebuild-axi [command] [flags]
-commands[23]:
+commands[24]:
   (none)=dashboard
-  build, test, tests, clean, analyze, archive, export
+  build, run, test, tests, clean, analyze, archive, export
   schemes, destinations, testplans, settings, packages, info
   result, coverage, sim, platforms, setup
   localize, xcframework, find, migrate
@@ -38,6 +38,7 @@ exit:
 examples:
   xcodebuild-axi
   xcodebuild-axi build --scheme MyApp
+  xcodebuild-axi run --scheme MyApp --device "iPhone 17 Pro"
   xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro" --coverage
   xcodebuild-axi settings --key PRODUCT_BUNDLE_IDENTIFIER
   xcodebuild-axi setup hooks
@@ -53,10 +54,21 @@ over guessing.
   `file,line,col`. The full transcript is written to a log whose path they
   print, so detail is one read away and never the default.
 - Picking a device: pass `--device "iPhone 17 Pro"`, or nothing at all to get
-  the newest simulator. Do not hand-write a `-destination` specifier.
+  a booted simulator, else the newest. Do not hand-write a `-destination`
+  specifier.
+- Seeing the app: `run` builds, installs and launches it on a simulator in
+  one call; then `sim screenshot`, `sim logs`, `sim open <url>`.
 - Reading a previous run: `result <path.xcresult>`, which re-reads without
   rebuilding.
 - Build settings: `settings --key NAME`, not a full dump.
+
+## Before dropping back to xcodebuild or simctl
+
+Don't guess that something is missing. Type what you would have typed —
+`xcodebuild-axi -showBuildSettings`, `xcodebuild-axi simctl io booted
+screenshot`, a whole `xcodebuild … test` line — and it answers with the
+command that does it here. When something really is not wrapped, the answer
+says so and prints the exact raw command to run instead. Fall back only then.
 
 ## Exit codes
 

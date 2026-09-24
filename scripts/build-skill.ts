@@ -49,10 +49,21 @@ over guessing.
   \`file,line,col\`. The full transcript is written to a log whose path they
   print, so detail is one read away and never the default.
 - Picking a device: pass \`--device "iPhone 17 Pro"\`, or nothing at all to get
-  the newest simulator. Do not hand-write a \`-destination\` specifier.
+  a booted simulator, else the newest. Do not hand-write a \`-destination\`
+  specifier.
+- Seeing the app: \`run\` builds, installs and launches it on a simulator in
+  one call; then \`sim screenshot\`, \`sim logs\`, \`sim open <url>\`.
 - Reading a previous run: \`result <path.xcresult>\`, which re-reads without
   rebuilding.
 - Build settings: \`settings --key NAME\`, not a full dump.
+
+## Before dropping back to xcodebuild or simctl
+
+Don't guess that something is missing. Type what you would have typed —
+\`xcodebuild-axi -showBuildSettings\`, \`xcodebuild-axi simctl io booted
+screenshot\`, a whole \`xcodebuild … test\` line — and it answers with the
+command that does it here. When something really is not wrapped, the answer
+says so and prints the exact raw command to run instead. Fall back only then.
 
 ## Exit codes
 

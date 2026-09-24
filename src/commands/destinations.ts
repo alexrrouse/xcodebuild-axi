@@ -1,6 +1,6 @@
 import { requireProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
-import { listDestinations } from "../destination.js";
+import { incompatibleHelp, listDestinations } from "../destination.js";
 import type { Destination } from "../destination.js";
 import { renderFields, renderHelp, renderList, renderOutput } from "../toon.js";
 import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
@@ -34,7 +34,8 @@ export async function destinationsCommand(args: string[]): Promise<string> {
   const all = hasFlag(args, "--all");
   const simulatorsOnly = hasFlag(args, "--simulators");
 
-  let destinations = await listDestinations(project, scheme);
+  const everything = await listDestinations(project, scheme);
+  let destinations = everything;
   if (!all) destinations = destinations.filter((d) => d.eligible);
   if (simulatorsOnly)
     destinations = destinations.filter((d) => d.platform.includes("Simulator"));
@@ -45,10 +46,11 @@ export async function destinationsCommand(args: string[]): Promise<string> {
         destinations: `0 runnable destinations for scheme '${scheme}'`,
       }),
       renderHelp([
-        "Run `xcodebuild-axi destinations --scheme " +
-          scheme +
-          " --all` to include ineligible ones",
-        "Check that the matching simulator runtime is installed in Xcode > Settings > Components",
+        ...incompatibleHelp(everything, scheme).filter(
+          (line) => !line.includes("destinations --scheme"),
+        ),
+        `Run \`xcodebuild-axi destinations --scheme ${scheme} --all\` to include the ineligible ones and why`,
+        `\`xcodebuild-axi build --scheme ${scheme}\` still compiles, against a generic simulator`,
       ]),
     ]);
   }
@@ -61,13 +63,29 @@ export async function destinationsCommand(args: string[]): Promise<string> {
       ...(all ? { eligible: destination.eligible ? "yes" : "no" } : {}),
     })),
   );
+  // One reason per row would repeat the same sentence seventeen times; the
+  // first per platform names the fix for all of them.
+  const reasons = new Map<string, string>();
+  for (const destination of destinations) {
+    if (destination.reason && !reasons.has(destination.platform)) {
+      reasons.set(destination.platform, destination.reason);
+    }
+  }
 
   return renderOutput([
     renderFields({ scheme }),
     renderList("destinations", rows),
+    ...(reasons.size > 0
+      ? [
+          renderList(
+            "ineligible_because",
+            [...reasons.values()].map((why) => ({ why })),
+          ),
+        ]
+      : []),
     renderHelp([
       `Run \`xcodebuild-axi test --scheme ${scheme} --device "<name>"\` to run there`,
-      `Run \`xcodebuild-axi build --scheme ${scheme}\` to use the newest simulator automatically`,
+      `Run \`xcodebuild-axi build --scheme ${scheme}\` to pick one automatically (a booted simulator, else the newest)`,
       ...variantHelp(destinations),
     ]),
   ]);
