@@ -437,6 +437,20 @@ the repository: running this tool must not dirty a working tree or require a
 of the same repo do not collide. Both `build` and `test` print the absolute log
 and bundle paths, so nothing is hidden by being out of the way.
 
+`result` with no path reads the newest bundle in that directory, and the home
+view reports on the same one; both go through `src/bundles.ts`. Recency is the
+mtime. The name matters only for the kind: reads that mean nothing on a build
+(`--export attachments`, `--tests`, …) take the newest _test_ bundle, and
+`bundleKind` is the one place that parses `runLabel`'s
+`<scheme>[-<device>]-<command>` naming to decide that. Rename the bundles and it
+has to change in the same commit. A run given `--artifacts-dir` is invisible to
+the default by design — it is not in the directory, and the refusal says so.
+
+`--export`'s default directory is keyed on the bundle path, which the next run
+of the same scheme and device reuses, so `result` clears it before writing. A
+second probe run otherwise exported beside the first one's screenshots and
+counted them as its own.
+
 ## Exit codes
 
 `0` success, `1` the build or tests failed, `2` usage error. A failed build is

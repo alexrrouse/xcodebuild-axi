@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildFields,
+  defaultBundle,
   deltaField,
   failureDeltaRows,
   flattenTests,
@@ -144,6 +151,93 @@ describe("result read modes", () => {
       resultCommand([bundle, "--log", "transcript"]),
     ).rejects.toThrow(/Unknown log type 'transcript'/);
   });
+
+  // With no path, a malformed invocation must still be a usage error rather
+  // than depend on whether a bundle happens to exist.
+  it("refuses two reads at once before looking for a bundle", async () => {
+    await expect(resultCommand(["--tests", "--metadata"])).rejects.toThrow(
+      /ask different questions/,
+    );
+    await expect(resultCommand(["--export", "screenshots"])).rejects.toThrow(
+      /Nothing named 'screenshots'/,
+    );
+  });
+});
+
+// The UI-probe loop: `test --only MyAppUITests/ProbeTests`, then read what it
+// attached, without copying the bundle path out of the report.
+describe("result with no path", () => {
+  const project = {
+    kind: "workspace" as const,
+    path: "/src/MyApps.xcworkspace",
+    name: "MyApps",
+    flags: [],
+  };
+  const created: string[] = [];
+  afterEach(() => {
+    for (const dir of created) rmSync(dir, { recursive: true, force: true });
+    created.length = 0;
+  });
+
+  function cache(entries: Record<string, number>): string {
+    const dir = mkdtempSync(join(tmpdir(), "axi-last-"));
+    created.push(dir);
+    const now = Date.now() / 1000;
+    for (const [name, age] of Object.entries(entries)) {
+      mkdirSync(join(dir, name));
+      utimesSync(join(dir, name), now - age, now - age);
+    }
+    return dir;
+  }
+
+  // The test suite runs from this repository, which holds no Xcode project.
+  it("asks for a path when there is no project to take the last run from", async () => {
+    await expect(resultCommand(["--failures"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringMatching(
+        /no project here to take the last run from/,
+      ),
+    });
+  });
+
+  it("says no run has been recorded, as a state rather than a usage error", () => {
+    expect(() => defaultBundle(project, false, cache({}))).toThrow(
+      expect.objectContaining({
+        code: "RESULT_NOT_FOUND",
+        message: "No runs recorded for 'MyApps' yet",
+      }),
+    );
+  });
+
+  it("names the build it will not read test results out of", () => {
+    const dir = cache({ "MyApp-build.xcresult": 120 });
+    expect(() => defaultBundle(project, true, dir)).toThrow(
+      /No test run recorded for 'MyApps' — the newest bundle is a build \(2m ago\)/,
+    );
+  });
+
+  it("reads the last test run and says a newer build was passed over", () => {
+    const dir = cache({
+      "MyApp-iPhone-17-Pro-test.xcresult": 5,
+      "MyApp-build.xcresult": 1,
+    });
+    const target = defaultBundle(project, true, dir);
+    expect(target.path).toBe(join(dir, "MyApp-iPhone-17-Pro-test.xcresult"));
+    expect(target.written).toBe("just now");
+    expect(target.newer).toMatch(
+      /^a build just now at .*MyApp-build\.xcresult$/,
+    );
+  });
+
+  it("reads the newest run of any kind for a question a build can answer", () => {
+    const dir = cache({
+      "MyApp-iPhone-17-Pro-test.xcresult": 5,
+      "MyApp-build.xcresult": 1,
+    });
+    const target = defaultBundle(project, false, dir);
+    expect(target.path).toBe(join(dir, "MyApp-build.xcresult"));
+    expect(target.newer).toBeUndefined();
+  });
 });
 
 // Each of these refusals is a narrowing that changes what comes out of the
@@ -259,6 +353,14 @@ describe("result --against", () => {
   it("needs the baseline to compare with", async () => {
     await expect(resultCommand([bundle, "--against"])).rejects.toThrow(
       /--against requires a value/,
+    );
+  });
+
+  // Likely once the current bundle can default to the last run: the baseline
+  // the agent names is that same run, and the comparison would be all zeroes.
+  it("refuses to compare a bundle with itself", async () => {
+    await expect(resultCommand([bundle, "--against", bundle])).rejects.toThrow(
+      /--against compares two runs, and both are/,
     );
   });
 

@@ -6,6 +6,23 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **`result` with no path reads the last run in the current project**, so a
+  UI probe is `test --only MyAppUITests/ProbeTests` then `result --export
+attachments` with no bundle path copied in between. Reads only a test run can
+  answer take the newest test bundle past a later build, and every read says
+  which bundle it chose, how old it is, and any newer run it passed over.
+  Closes #8.
+
+### Fixed
+
+- **A second `result --export` of the same bundle no longer reports the first
+  one's files.** The default export directory is reused across runs of the same
+  scheme and device, and is now cleared before writing.
+- **`result --against` refuses to compare a bundle with itself**, which
+  reported every count as unchanged.
+
 ## [0.3.0] - 2026-09-24
 
 ### Added
