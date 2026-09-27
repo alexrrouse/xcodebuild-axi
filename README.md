@@ -261,7 +261,7 @@ xcodebuild-axi result --failures --full
 
 That is also how to _look_ at a screen several taps deep: drive it with a
 throwaway UI test that attaches screenshots, then export them. Questions only a
-test run can answer (`--export attachments`, `--tests`, `--activities`, …) skip
+test run can answer (`--export attachments`, `--tests`, `--against`, …) skip
 past a later build to the last test run, and the report says which bundle it
 read and how old it is.
 

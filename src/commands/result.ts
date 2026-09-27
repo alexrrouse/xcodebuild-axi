@@ -99,10 +99,9 @@ note:
 
   With no path it reads the newest bundle this tool wrote for the project
   here -- the newest test run for --tests, --insights, --activities,
-  --metrics, and an --export of anything but diagnostics, since a later build
-  holds none of those. The
-  report names the bundle and its age. A run given --artifacts-dir is not
-  seen; pass its path.
+  --metrics, --against, --log console, and an --export of anything but
+  diagnostics, since a later build holds none of those. The report names the
+  bundle and its age. A run given --artifacts-dir is not seen; pass its path.
 
   --export writes files rather than printing them, so it reports what landed
   and where. --failures narrows attachments and evaluations to what a failing
@@ -164,6 +163,7 @@ export async function resultCommand(args: string[]): Promise<string> {
   const mode = soleMode(args);
   if (mode === "--merge") return runMerge(args, max);
   if (mode === "--export") exportKind(args);
+  if (mode === "--log") logType(args);
 
   const [rawPath] = positionals(args, VALUE_FLAGS);
   const target =
@@ -380,14 +380,28 @@ function bundleFields(target: BundleTarget): Record<string, string> {
   };
 }
 
-/** Reads that mean nothing on a build, so a default must be a test run. */
-const TEST_MODES = ["--tests", "--insights", "--activities", "--metrics"];
+/**
+ * Reads that mean nothing on a build, so a default must be a test run.
+ *
+ * `--against` is here too: comparing a build with a test baseline reports
+ * every baseline failure as resolved. A build-to-build comparison is still
+ * one explicit path away.
+ */
+const TEST_MODES = [
+  "--tests",
+  "--insights",
+  "--activities",
+  "--metrics",
+  "--against",
+];
 
 export function isTestShaped(
   mode: (typeof MODES)[number] | undefined,
   args: string[],
 ): boolean {
   if (mode === "--export") return exportKind(args) !== "diagnostics";
+  // Only a test run has a console. A build has a build log and an action log.
+  if (mode === "--log") return logType(args) === "console";
   return mode !== undefined && TEST_MODES.includes(mode);
 }
 

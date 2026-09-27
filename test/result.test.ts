@@ -12,6 +12,7 @@ import {
   buildFields,
   defaultBundle,
   deltaField,
+  isTestShaped,
   failureDeltaRows,
   flattenTests,
   manifestRows,
@@ -227,6 +228,18 @@ describe("result with no path", () => {
     expect(target.newer).toMatch(
       /^a build just now at .*MyApp-build\.xcresult$/,
     );
+  });
+
+  // A build has no console, and comparing one with a test baseline reports
+  // every baseline failure as resolved.
+  it("takes a test run for a console log or a comparison", () => {
+    expect(isTestShaped("--log", ["--log", "console"])).toBe(true);
+    expect(isTestShaped("--log", ["--log", "build"])).toBe(false);
+    expect(isTestShaped("--against", ["--against", "base.xcresult"])).toBe(
+      true,
+    );
+    expect(isTestShaped("--export", ["--export", "diagnostics"])).toBe(false);
+    expect(isTestShaped(undefined, ["--failures"])).toBe(false);
   });
 
   it("reads the newest run of any kind for a question a build can answer", () => {
