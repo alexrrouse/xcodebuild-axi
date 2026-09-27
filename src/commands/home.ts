@@ -1,5 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { newestBundle } from "../bundles.js";
 import { resolveProject, type ProjectContext } from "../context.js";
 import { listSchemes } from "../scheme.js";
 import { artifactDir } from "../xcodebuild.js";
@@ -86,23 +85,13 @@ async function describeLastRun(
 ): Promise<string | undefined> {
   const dir = artifactDir(project);
 
-  let newest: { path: string; mtime: number } | undefined;
-  try {
-    for (const entry of readdirSync(dir)) {
-      if (!entry.endsWith(".xcresult")) continue;
-      const path = join(dir, entry);
-      const mtime = statSync(path).mtimeMs;
-      if (!newest || mtime > newest.mtime) newest = { path, mtime };
-    }
-  } catch {
-    return undefined;
-  }
+  const newest = newestBundle(dir).chosen;
   if (!newest) return undefined;
 
   const summary = await readTestSummary(newest.path).catch(() => undefined);
-  const when = relativeTime(newest.mtime / 1000);
+  const when = relativeTime(newest.mtimeMs / 1000);
   const where = `see \`xcodebuild-axi result ${tildePath(newest.path)}\``;
-  const kind = runKind(newest.path);
+  const kind = newest.kind;
 
   // `xcresulttool` answers the test-shaped query for *any* bundle, so a build
   // comes back as `{title: "Test - X", totalTestCount: 0, result: "unknown"}`
@@ -127,17 +116,4 @@ async function describeLastRun(
       ? `${failed} failed, ${summary.passedTests ?? 0} passed`
       : `${summary.passedTests ?? 0} passed`;
   return `${summary.title ?? "test"} on ${device} — ${verdict} (${when})`;
-}
-
-/**
- * Which command wrote a bundle, from the name `runLabel` gave it:
- * `<scheme>[-<device>]-<command>.xcresult`.
- */
-export function runKind(path: string): string {
-  const stem = basename(path, ".xcresult");
-  const tail = stem.split("-").pop();
-  // `basename` leaves the extension alone when stripping it would leave
-  // nothing, so a degenerate ".xcresult" comes back whole. A command name
-  // always starts with a letter, which is enough to tell the two apart.
-  return tail && /^[A-Za-z]/.test(tail) ? tail : "run";
 }

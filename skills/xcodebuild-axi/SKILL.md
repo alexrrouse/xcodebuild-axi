@@ -58,8 +58,9 @@ over guessing.
   specifier.
 - Seeing the app: `run` builds, installs and launches it on a simulator in
   one call; then `sim screenshot`, `sim logs`, `sim open <url>`.
-- Reading a previous run: `result <path.xcresult>`, which re-reads without
-  rebuilding.
+- Reading a previous run: `result` re-reads the last one without rebuilding
+  (`result --export attachments` for its screenshots); pass a
+  `<path.xcresult>` for any other.
 - Build settings: `settings --key NAME`, not a full dump.
 
 ## Before dropping back to xcodebuild or simctl

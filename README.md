@@ -252,12 +252,26 @@ one the app logged. `--system` asks for those too.
 
 ### Reading a run again
 
-`build` and `test` both print the bundle they wrote, so nothing needs re-running
-to be re-read:
+`result` with no path re-reads the last run in the current project, so nothing
+needs re-running — or copying out of a report — to be re-read:
 
 ```sh
-xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-test.xcresult --failures --full
+xcodebuild-axi result --failures --full
 ```
+
+That is also how to _look_ at a screen several taps deep: drive it with a
+throwaway UI test that attaches screenshots, then export them. Questions only a
+test run can answer (`--export attachments`, `--tests`, `--against`, …) skip
+past a later build to the last test run, and the report says which bundle it
+read and how old it is.
+
+```sh
+xcodebuild-axi test --scheme MyApp --only MyAppUITests/ProbeTests
+xcodebuild-axi result --export attachments --filter '*.png'
+```
+
+A bundle from anywhere else — CI, or a run given `--artifacts-dir` — takes its
+path: `xcodebuild-axi result build/MyApp.xcresult`.
 
 ## Ambient context
 

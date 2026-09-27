@@ -8,7 +8,9 @@ import {
   statSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { exportDir, mergedBundlePath } from "../xcodebuild.js";
+import { artifactDir, exportDir, mergedBundlePath } from "../xcodebuild.js";
+import { newestBundle } from "../bundles.js";
+import { resolveProject, type ProjectContext } from "../context.js";
 import {
   describeDevice,
   exportBundle,
@@ -49,6 +51,7 @@ import { diagnosticsBlock, failureRows } from "../report.js";
 import {
   byteSize,
   duration,
+  relativeTime,
   renderFields,
   renderHelp,
   renderList,
@@ -64,8 +67,9 @@ import {
   rejectUnknownFlags,
 } from "../args.js";
 
-export const RESULT_HELP = `usage: xcodebuild-axi result <path.xcresult> [flags]
+export const RESULT_HELP = `usage: xcodebuild-axi result [path.xcresult] [flags]
 Re-reads a result bundle that a previous run wrote, without rebuilding.
+With no path, reads the last run in this project.
 flags[17]:
   --failures     failures and errors only
   --warnings     include the full warning list
@@ -93,6 +97,12 @@ note:
   somewhere else: it says whether there is coverage or a log to ask for,
   instead of letting you find out by failing to read one.
 
+  With no path it reads the newest bundle this tool wrote for the project
+  here -- the newest test run for --tests, --insights, --activities,
+  --metrics, --against, --log console, and an --export of anything but
+  diagnostics, since a later build holds none of those. The report names the
+  bundle and its age. A run given --artifacts-dir is not seen; pass its path.
+
   --export writes files rather than printing them, so it reports what landed
   and where. --failures narrows attachments and evaluations to what a failing
   test produced, which is usually all anyone wants out of a green run's
@@ -102,10 +112,10 @@ note:
   baseline did not have is what a CI check is looking for, and it is reported
   ahead of everything else.
 examples:
-  xcodebuild-axi result ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.xcresult
-  xcodebuild-axi result build/MyApp.xcresult --failures --full
+  xcodebuild-axi result --failures --full
+  xcodebuild-axi result --export attachments --filter '*.png'
+  xcodebuild-axi result --activities --test MyAppTests/CheckoutTests/testTotal
   xcodebuild-axi result build/MyApp.xcresult --log build --max 10
-  xcodebuild-axi result build/MyApp.xcresult --activities --test MyAppTests/CheckoutTests/testTotal
   xcodebuild-axi result build/MyApp.xcresult --export attachments --failures
   xcodebuild-axi result build/MyApp.xcresult --against build/baseline.xcresult
   xcodebuild-axi result shard1.xcresult shard2.xcresult --merge
@@ -144,25 +154,26 @@ const VALUE_FLAGS = [
 export async function resultCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "result", RESULT_FLAGS, VALUE_FLAGS);
 
-  const [rawPath] = positionals(args, VALUE_FLAGS);
-  if (rawPath === undefined) {
-    throw new AxiError(
-      "result needs a path to an .xcresult bundle",
-      "VALIDATION_ERROR",
-      [
-        "xcodebuild-axi result <path.xcresult>",
-        "`xcodebuild-axi build` and `test` each print the path they wrote",
-      ],
-    );
-  }
-
-  const path = resolve(expandTilde(rawPath));
   const max = getIntFlag(args, "--max") ?? 20;
   const full = hasFlag(args, "--full");
   const failuresOnly = hasFlag(args, "--failures");
 
+  // Every check that needs no bundle runs before one is looked for, so a
+  // malformed invocation exits 2 without depending on what is on disk.
   const mode = soleMode(args);
-  if (mode) return readMode(mode, path, args, max);
+  if (mode === "--merge") return runMerge(args, max);
+  if (mode === "--export") exportKind(args);
+  if (mode === "--log") logType(args);
+
+  const [rawPath] = positionals(args, VALUE_FLAGS);
+  const target =
+    rawPath !== undefined
+      ? { path: resolve(expandTilde(rawPath)) }
+      : defaultBundle(resolveProject(), isTestShaped(mode, args));
+  const { path } = target;
+  const bundle = renderFields(bundleFields(target));
+
+  if (mode) return readMode(mode, path, args, max, bundle);
 
   const [summary, build] = await Promise.all([
     readTestSummary(path).catch(() => undefined),
@@ -171,7 +182,7 @@ export async function resultCommand(args: string[]): Promise<string> {
 
   if (!summary && !build) {
     throw new AxiError(
-      `Nothing readable in the bundle at ${rawPath}`,
+      `Nothing readable in the bundle at ${tildePath(path)}`,
       "RESULT_NOT_FOUND",
     );
   }
@@ -243,7 +254,7 @@ export async function resultCommand(args: string[]): Promise<string> {
     }
   }
 
-  blocks.push(renderFields({ bundle: tildePath(path) }));
+  blocks.push(bundle);
 
   const hints: string[] = [];
   if (
@@ -252,7 +263,7 @@ export async function resultCommand(args: string[]): Promise<string> {
     !failuresOnly
   ) {
     hints.push(
-      `Run \`xcodebuild-axi result ${rawPath} --warnings\` to list them`,
+      `Run \`xcodebuild-axi result ${tildePath(path)} --warnings\` to list them`,
     );
   }
   blocks.push(renderHelp(hints));
@@ -290,14 +301,117 @@ function soleMode(args: string[]): (typeof MODES)[number] | undefined {
   return asked[0];
 }
 
+/**
+ * The bundle `result` reads when it is not given one: the newest this tool
+ * wrote for the project in the working directory.
+ *
+ * `testOnly` is for the reads that only a test run can answer. A build that
+ * finished after the test run is newer, and reading it for attachments would
+ * report "none" -- a wrong answer that looks like a right one -- so those
+ * reads skip to the newest test bundle and say what they skipped.
+ *
+ * Only the artifact directory is searched. A run given --artifacts-dir wrote
+ * somewhere this cannot know about, and a bundle from anywhere else is not
+ * this project's last run.
+ */
+export function defaultBundle(
+  project: ProjectContext | undefined,
+  testOnly: boolean,
+  dir = project && artifactDir(project),
+): BundleTarget {
+  if (!project || dir === undefined) {
+    throw new AxiError(
+      "result needs a bundle path — there is no project here to take the last run from",
+      "VALIDATION_ERROR",
+      [
+        "xcodebuild-axi result <path.xcresult>",
+        "Or cd to the project whose last run you want and drop the path",
+      ],
+    );
+  }
+
+  const { chosen, skipped } = newestBundle(dir, testOnly ? "test" : undefined);
+  if (!chosen) {
+    throw new AxiError(
+      skipped
+        ? `No test run recorded for '${project.name}' — the newest bundle is a ${skipped.kind} (${relativeTime(skipped.mtimeMs / 1000)})`
+        : `No runs recorded for '${project.name}' yet`,
+      "RESULT_NOT_FOUND",
+      [
+        "Run `xcodebuild-axi test` — it writes the bundle this reads",
+        ...(skipped
+          ? [
+              `Run \`xcodebuild-axi result ${tildePath(skipped.path)}\` for the ${skipped.kind}`,
+            ]
+          : []),
+        "A run given --artifacts-dir wrote its bundle there — pass that path",
+      ],
+    );
+  }
+
+  return {
+    path: chosen.path,
+    written: relativeTime(chosen.mtimeMs / 1000),
+    ...(skipped
+      ? {
+          newer: `a ${skipped.kind} ${relativeTime(skipped.mtimeMs / 1000)} at ${tildePath(skipped.path)}`,
+        }
+      : {}),
+  };
+}
+
+export interface BundleTarget {
+  path: string;
+  /** How long ago it was written, when `result` chose it rather than being told. */
+  written?: string;
+  /** A later run of another kind that the choice passed over. */
+  newer?: string;
+}
+
+/**
+ * Said on every read, so a bundle picked by default is never mistaken for
+ * the run the agent just started, and one picked over a newer run says so.
+ */
+function bundleFields(target: BundleTarget): Record<string, string> {
+  return {
+    bundle: tildePath(target.path),
+    ...(target.written ? { written: target.written } : {}),
+    ...(target.newer ? { newer: target.newer } : {}),
+  };
+}
+
+/**
+ * Reads that mean nothing on a build, so a default must be a test run.
+ *
+ * `--against` is here too: comparing a build with a test baseline reports
+ * every baseline failure as resolved. A build-to-build comparison is still
+ * one explicit path away.
+ */
+const TEST_MODES = [
+  "--tests",
+  "--insights",
+  "--activities",
+  "--metrics",
+  "--against",
+];
+
+export function isTestShaped(
+  mode: (typeof MODES)[number] | undefined,
+  args: string[],
+): boolean {
+  if (mode === "--export") return exportKind(args) !== "diagnostics";
+  // Only a test run has a console. A build has a build log and an action log.
+  if (mode === "--log") return logType(args) === "console";
+  return mode !== undefined && TEST_MODES.includes(mode);
+}
+
 async function readMode(
   mode: (typeof MODES)[number],
   path: string,
   args: string[],
   max: number,
+  bundle: string,
 ): Promise<string> {
-  const bundle = renderFields({ bundle: tildePath(path) });
-
   switch (mode) {
     case "--tests":
       return reportTests(await readTests(path), max, bundle);
@@ -329,6 +443,15 @@ async function readMode(
     case "--export":
       return runExport(path, args, max, bundle);
     case "--against":
+      if (baselineOf(args) === path) {
+        throw new AxiError(
+          `--against compares two runs, and both are ${tildePath(path)}`,
+          "VALIDATION_ERROR",
+          [
+            "xcodebuild-axi result <path.xcresult> --against <baseline.xcresult>",
+          ],
+        );
+      }
       return reportComparison(
         await readComparison(path, baselineOf(args)),
         args,
@@ -410,6 +533,12 @@ async function runExport(
     );
   }
 
+  // The default directory is keyed on the bundle, and a bundle's path is
+  // reused by the next run of the same scheme and device. Without clearing
+  // it, a second probe's export lands beside the first one's screenshots and
+  // counts them as its own. A --to directory is the caller's, and left alone.
+  if (!requested) rmSync(outputPath, { recursive: true, force: true });
+
   await exportBundle({
     path,
     kind,
@@ -432,7 +561,7 @@ async function runExport(
       }),
       bundle,
       renderHelp([
-        "Run `xcodebuild-axi result <path> --available` to see what this bundle holds",
+        `Run \`xcodebuild-axi result ${tildePath(path)} --available\` to see what this bundle holds`,
         ...(kind === "attachments"
           ? [
               "Xcode keeps attachments only when the test asks it to, or when the test failed",
