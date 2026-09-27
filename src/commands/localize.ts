@@ -20,13 +20,14 @@ import {
 
 export const LOCALIZE_HELP = `usage: xcodebuild-axi localize export|import [flags]
 Moves XLIFF localization catalogs in and out of a project.
-flags[6]:
+flags[7]:
   --path <path>              the .xcloc directory to write, or the one to import (required for import)
   --language <code>          ISO 639-1 language to export; repeatable or comma-separated
   --default-language <code>  the language translations are made from
   --screenshots              include localization screenshots in the export
   --merge                    merge the import into existing translations instead of replacing
   --scheme <name>            limit the export to one scheme's targets
+  --live                     also print the transcript to stderr as it runs, for a run that may hang
 note:
   Export writes one .xcloc bundle per language. Without --path they land in the
   tool's cache and the path is printed.
@@ -45,6 +46,7 @@ export const LOCALIZE_FLAGS = [
   "--screenshots",
   "--merge",
   "--scheme",
+  "--live",
 ] as const;
 
 const VALUE_FLAGS = [
@@ -115,6 +117,7 @@ export async function localizeCommand(args: string[]): Promise<string> {
     ],
     label: `${project.name}-localize-${mode}`,
     project,
+    live: hasFlag(args, "--live"),
   });
 
   if (run.exitCode !== 0) {

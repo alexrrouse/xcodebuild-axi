@@ -38,7 +38,7 @@ import {
 
 export const TEST_HELP = `usage: xcodebuild-axi test [flags]
 Runs a scheme's tests and reports the counts plus only the failures.
-flags[67]:
+flags[68]:
 ${BUILD_FLAG_HELP}
   --test-plan <name>     test plan to run
   --only <id>            run only this test/class/target; repeatable or comma-separated

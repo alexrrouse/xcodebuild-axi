@@ -30,7 +30,7 @@ import {
 export const TESTS_HELP = `usage: xcodebuild-axi tests [flags]
 Lists the tests a scheme would run, without running them. Grouped by suite,
 because a thousand identifiers is not an answer.
-flags[48]:
+flags[49]:
 ${BUILD_FLAG_HELP}
   --test-plan <name>  test plan to enumerate
   --only <id>         enumerate only this test/class/target; repeatable or comma-separated

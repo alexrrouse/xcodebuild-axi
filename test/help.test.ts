@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMMAND_HELP, TOP_HELP } from "../src/cli.js";
+import { COMMAND_FLAGS, COMMAND_HELP, TOP_HELP } from "../src/cli.js";
 
 /**
  * Every help block declares its own length — `flags[9]:` — because TOON arrays
@@ -67,5 +67,28 @@ describe("help texts", () => {
     for (const command of Object.keys(COMMAND_HELP)) {
       expect(block).toContain(command);
     }
+  });
+});
+
+// Every command that writes a transcript to a log can stream it, so "does it
+// print `log:`" is the whole rule an agent has to learn.
+describe("--live", () => {
+  const writesALog = [
+    "build",
+    "run",
+    "test",
+    "tests",
+    "analyze",
+    "archive",
+    "clean",
+    "platforms",
+    "export",
+    "packages",
+    "localize",
+  ];
+
+  it.each(writesALog)("is accepted and documented by `%s`", (command) => {
+    expect(COMMAND_FLAGS[command]).toContain("--live");
+    expect(COMMAND_HELP[command]).toMatch(/^ {2}--live /m);
   });
 });

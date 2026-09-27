@@ -47,7 +47,9 @@ over guessing.
 
 - Building or testing: \`build\` and \`test\` report only what failed, with
   \`file,line,col\`. The full transcript is written to a log whose path they
-  print, so detail is one read away and never the default.
+  print, so detail is one read away and never the default. A run still going
+  after 30 seconds names its log on stderr, so a hung one can be tailed;
+  \`--live\` streams the whole transcript there, for a background run.
 - Picking a device: pass \`--device "iPhone 17 Pro"\`, or nothing at all to get
   a booted simulator, else the newest. Do not hand-write a \`-destination\`
   specifier.

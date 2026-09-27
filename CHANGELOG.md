@@ -8,6 +8,15 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ### Added
 
+- **`--live` streams xcodebuild's transcript to stderr as it runs**, on every
+  command that writes a log, for watching a run that may be hung rather than
+  slow. The log is still written and the report still arrives on stdout,
+  unchanged. `--verbose` and `--stream-console` point to it. Closes #11.
+- **A run still going after 30 seconds prints its log path on stderr**, so a
+  hung run can be tailed while it hangs rather than only once it ends.
+
+### Added
+
 - **`result` with no path reads the last run in the current project**, so a
   UI probe is `test --only MyAppUITests/ProbeTests` then `result --export
 attachments` with no bundle path copied in between. Reads only a test run can

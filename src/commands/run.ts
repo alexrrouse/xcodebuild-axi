@@ -37,7 +37,7 @@ const RUN_BUILD_FLAG_HELP = BUILD_FLAG_HELP.split("\n")
 export const RUN_HELP = `usage: xcodebuild-axi run [flags]
 Builds a scheme, installs it on a simulator, and launches it — the loop from
 an edit to a running app, in one call. A Mac app is opened instead.
-flags[43]:
+flags[44]:
 ${RUN_BUILD_FLAG_HELP}
   --no-build              install and launch the last build without building again
   --env KEY=VALUE         environment variable for the app; repeatable

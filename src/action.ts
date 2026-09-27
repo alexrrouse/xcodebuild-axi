@@ -59,6 +59,7 @@ export const SHARED_BUILD_FLAGS = [
   "--full",
   "--codesize",
   "--log-level",
+  "--live",
   "--bundle-version",
   "--stream",
   ...PACKAGE_FLAGS,
@@ -115,6 +116,7 @@ export const BUILD_FLAG_HELP = `  --scheme <name>         scheme to act on (requ
   --full                  list every warning instead of the first 10
   --codesize <dir>        write a code size profile to this directory
   --log-level <level>     quiet, normal, or verbose — how much lands in the log file
+  --live                  also print the transcript to stderr as it runs, for a run that may hang
   --bundle-version <n>    result bundle format version (default: xcodebuild's own)
   --stream <path>         also write xcodebuild's live result stream here
 ${PACKAGE_FLAG_HELP}`;
@@ -208,6 +210,8 @@ export interface BuildContext {
   full: boolean;
   /** Where to write the log and result bundle, when the caller chose. */
   artifactsDir: string | undefined;
+  /** Tee the transcript to stderr as well as the log. */
+  live: boolean;
 }
 
 /**
@@ -343,6 +347,7 @@ export async function resolveBuildContext(
     maxErrors: getIntFlag(args, "--max-errors") ?? 20,
     full: hasFlag(args, "--full"),
     artifactsDir: artifactsDirFrom(args),
+    live: hasFlag(args, "--live"),
   };
 }
 
@@ -394,6 +399,7 @@ export function runAction(options: RunActionOptions): Promise<BuildRun> {
     ],
     label: runLabel(options.context, options.command),
     project: options.context.project,
+    live: options.context.live,
     ...(options.context.artifactsDir !== undefined
       ? { outDir: options.context.artifactsDir }
       : {}),

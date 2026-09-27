@@ -30,7 +30,9 @@ result: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test
 ```
 
 The whole transcript still lands in `log`, so nothing is lost — it just stops
-being the default answer.
+being the default answer. A run that is still going after 30 seconds prints
+that `log:` line on stderr straight away, so a hung run can be `tail -f`'d while
+it hangs, and `--live` streams the transcript itself to stderr as it arrives.
 
 ## Why it can be this small
 
@@ -301,6 +303,9 @@ npx skills add alexrrouse/xcodebuild-axi --skill xcodebuild-axi
 
 - **Output is [TOON](https://toonformat.dev/)** on stdout, ~40% cheaper than the
   equivalent JSON.
+- **stdout is only the answer.** Anything for watching a run — its log path
+  once it has gone 30 seconds, the transcript under `--live` — goes to stderr,
+  so stdout is the same whichever you ask for.
 - **Errors are data.** They go to stdout in the same shape as an answer, with a
   `code` and a `help[]` that names the command that fixes it.
 - **Exit codes**: `0` success, `1` the build or tests failed, `2` usage error.

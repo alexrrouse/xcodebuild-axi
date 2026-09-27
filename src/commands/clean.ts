@@ -3,7 +3,7 @@ import { getFlag, rejectUnknownFlags } from "../args.js";
 
 export const CLEAN_HELP = `usage: xcodebuild-axi clean [flags]
 Removes a scheme's build products and intermediates.
-flags[14]:
+flags[15]:
   --scheme <name>         scheme to clean (required only when the project has more than one)
   --target <name>         clean a target instead of a scheme; repeatable (project only)
   --all-targets           clean every target in the project (project only)
@@ -18,6 +18,7 @@ flags[14]:
   --derived-data <path>   derived data directory to clean within
   --artifacts-dir <path>  where to write this run's log and .xcresult (default: the tool's cache)
   --log-level <level>     quiet, normal, or verbose — how much lands in the log file
+  --live                  also print the transcript to stderr as it runs, for a run that may hang
 note:
   A clean is scoped by the same things a build is. Without a destination or an
   --sdk it cleans the products for xcodebuild's default, which is not what a
@@ -44,6 +45,7 @@ export const CLEAN_FLAGS = [
   "--derived-data",
   "--artifacts-dir",
   "--log-level",
+  "--live",
 ] as const;
 
 const VALUE_FLAGS = CLEAN_FLAGS.filter(

@@ -24,11 +24,12 @@ import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 export const PACKAGES_HELP = `usage: xcodebuild-axi packages [flags]
 Reports the Swift package versions this project is pinned to, read straight
 from Package.resolved — no build, no subprocess.
-flags[18]:
+flags[19]:
   --resolve               actually resolve dependencies first (network, slow)
   --filter <text>         only packages whose identity contains this
   --scheme <name>         with --resolve against a workspace: the scheme to resolve for
   --derived-data <path>   with --resolve: derived data directory to resolve into
+  --live                  with --resolve: also print the transcript to stderr as it runs, for a run that may hang
 ${PACKAGE_FLAG_HELP}
 note:
   The resolution flags only matter alongside --resolve; reading the pins is a
@@ -44,6 +45,7 @@ export const PACKAGES_FLAGS = [
   "--filter",
   "--scheme",
   "--derived-data",
+  "--live",
   ...PACKAGE_FLAGS,
 ] as const;
 const VALUE_FLAGS = [
@@ -85,6 +87,7 @@ export async function packagesCommand(args: string[]): Promise<string> {
       ],
       label: `${project.name}-resolve`,
       project,
+      live: hasFlag(args, "--live"),
     });
 
     if (run.exitCode !== 0) {

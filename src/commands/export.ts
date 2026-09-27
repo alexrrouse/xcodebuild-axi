@@ -72,12 +72,13 @@ const PLIST_VALUE_FLAGS = [
 
 export const EXPORT_HELP = `usage: xcodebuild-axi export <path.xcarchive> [flags]
 Exports a built archive into a distributable product.
-flags[27]:
+flags[28]:
   --method <name>         ${EXPORT_METHODS.join(", ")}
   --team <id>             Developer team ID to sign with
   --options <path>        a hand-written export options plist, instead of --method
   --output <path>         where to write the export (default: the tool's cache)
   --artifacts-dir <path>  where to write this run's log (default: the tool's cache)
+  --live                  also print the transcript to stderr as it runs, for a run that may hang
   --upload                send the build to App Store Connect instead of writing it to disk
   --no-manage-version     keep the archive's own version and build number
   --no-upload-symbols     do not send dSYMs with the build
@@ -126,6 +127,7 @@ export const EXPORT_FLAGS = [
   "--options",
   "--output",
   "--artifacts-dir",
+  "--live",
   "--upload",
   "--no-manage-version",
   "--no-upload-symbols",
@@ -257,6 +259,7 @@ export async function exportCommand(args: string[]): Promise<string> {
     label: `${basenameOf(archivePath)}-export`,
     project,
     ...(artifactsDir !== undefined ? { outDir: artifactsDir } : {}),
+    live: hasFlag(args, "--live"),
   });
 
   const succeeded = run.exitCode === 0;
