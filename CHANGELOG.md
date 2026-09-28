@@ -42,6 +42,8 @@ attachments` with no bundle path copied in between. Reads only a test run can
   shares its target's name (`MyAppUITests/MyAppUITests/testCheckout`, not
   `MyAppUITests/testCheckout`), and keeps a Swift Testing test's parentheses,
   quoted for the shell.
+- **`result --tests` names each test the way `--only` takes it**, target
+  included, so a row can be pasted into `test --only`.
 - **Two runs of one scheme and device no longer share a log and result
   bundle.** A run that outlived its tests had its bundle deleted and its log
   truncated by the next run of the same pair, then reported that run's counts

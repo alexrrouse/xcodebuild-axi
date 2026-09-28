@@ -173,6 +173,22 @@ describe("treeIdentifiers", () => {
     ]);
   });
 
+  // A mis-parse would fail every --only as unmatched, so a shape that does
+  // not come out as the bundle's own name is "cannot tell", not "nothing".
+  it("gives up on URLs in a shape it does not recognise", () => {
+    expect(
+      treeIdentifiers({
+        testNodes: [
+          {
+            nodeType: "Unit test bundle",
+            name: "MyAppTests",
+            nodeIdentifierURL: "test://com.apple.xcode/MyAppTests",
+          },
+        ],
+      }),
+    ).toBeUndefined();
+  });
+
   // What a run that matched nothing leaves behind.
   it("names nothing when only the plan is there", () => {
     expect(
@@ -187,7 +203,7 @@ describe("treeIdentifiers", () => {
 // An XCTest method matches with or without `()`; a Swift Testing test only
 // with its parentheses; a trailing slash matches nothing.
 describe("unmatchedSelectors", () => {
-  const ran = treeIdentifiers(tree);
+  const ran = treeIdentifiers(tree) ?? [];
 
   it("names the selectors nothing ran for, and only those", () => {
     expect(
@@ -232,6 +248,7 @@ describe("unmatchedSelectors", () => {
 
 describe("testVerdict", () => {
   const passing = { totalTestCount: 3, passedTests: 3, failedTests: 0 };
+  const ran = treeIdentifiers(tree) ?? [];
 
   it("passes a run that ran what it was asked to", () => {
     expect(
@@ -239,9 +256,9 @@ describe("testVerdict", () => {
         exitCode: 0,
         summary: passing,
         only: ["MyAppTests/CheckoutTests"],
-        identifiers: treeIdentifiers(tree),
+        identifiers: ran,
       }),
-    ).toEqual({ succeeded: true, unmatched: [] });
+    ).toEqual({ succeeded: true, unmatched: [], ran: 3 });
   });
 
   // The issue: xcodebuild says TEST SUCCEEDED and exits zero.
@@ -257,6 +274,7 @@ describe("testVerdict", () => {
       succeeded: false,
       reason: "no --only selector matched a test",
       unmatched: ["MyAppTests/Missing"],
+      ran: 0,
     });
     expect(
       testVerdict({
@@ -265,7 +283,7 @@ describe("testVerdict", () => {
         only: [],
         identifiers: undefined,
       }),
-    ).toEqual({ succeeded: false, reason: "no tests ran", unmatched: [] });
+    ).toMatchObject({ succeeded: false, reason: "no tests ran" });
   });
 
   it("fails a run in which one selector of several matched nothing", () => {
@@ -274,27 +292,43 @@ describe("testVerdict", () => {
         exitCode: 0,
         summary: passing,
         only: ["MyAppTests/CheckoutTests", "MyAppTests/NewTests"],
-        identifiers: treeIdentifiers(tree),
+        identifiers: ran,
       }),
-    ).toEqual({
+    ).toMatchObject({
       succeeded: false,
       reason: "1 --only selector matched no test",
       unmatched: ["MyAppTests/NewTests"],
     });
   });
 
-  it("keeps a failed run failed, and still names what matched nothing", () => {
+  // A crash or a timeout also leaves tests out of the tree. Calling their
+  // selectors misspelled would send the agent after the wrong problem.
+  it("does not check selectors on a run that failed or was cut short", () => {
+    const failed = testVerdict({
+      exitCode: 65,
+      summary: { totalTestCount: 3, passedTests: 2, failedTests: 1 },
+      only: ["MyAppTests/CheckoutTests", "MyAppUITests/LoginFlow"],
+      identifiers: ran,
+    });
+    expect(failed).toMatchObject({ succeeded: false, unmatched: [] });
+    expect(failed.reason).toBeUndefined();
+
     expect(
       testVerdict({
         exitCode: 65,
-        summary: { totalTestCount: 3, passedTests: 2, failedTests: 1 },
-        only: ["MyAppTests/CheckoutTests", "MyAppTests/NewTests"],
-        identifiers: treeIdentifiers(tree),
+        summary: { totalTestCount: 0 },
+        only: ["MyAppUITests/LoginFlow"],
+        identifiers: [],
       }),
-    ).toEqual({ succeeded: false, unmatched: ["MyAppTests/NewTests"] });
+    ).toMatchObject({
+      succeeded: false,
+      reason: "no tests ran",
+      unmatched: [],
+    });
   });
 
-  // Nothing to check against is not evidence that something is missing.
+  // Nothing to check against is not evidence that something is missing --
+  // but the report says the check did not happen.
   it("does not invent a miss when the tree could not be read", () => {
     expect(
       testVerdict({
@@ -303,7 +337,19 @@ describe("testVerdict", () => {
         only: ["MyAppTests/NewTests"],
         identifiers: undefined,
       }),
-    ).toEqual({ succeeded: true, unmatched: [] });
+    ).toEqual({ succeeded: true, unmatched: [], ran: 3, checked: false });
+  });
+
+  it("does not blame a selector whose tests --skip removed", () => {
+    expect(
+      testVerdict({
+        exitCode: 0,
+        summary: passing,
+        only: ["MyAppTests/CheckoutTests", "MyAppTests/CartTests"],
+        skip: ["MyAppTests/CartTests/testEmpty"],
+        identifiers: ran,
+      }),
+    ).toMatchObject({ succeeded: true, unmatched: [] });
   });
 });
 

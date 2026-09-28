@@ -145,6 +145,17 @@ describe("rerunIdentifier", () => {
     ).toBe("MyAppUITests/MyAppUITests/testCheckout");
   });
 
+  // A URL that does not name the failure's own target is not trusted.
+  it("falls back when the URL does not start with the target", () => {
+    expect(
+      rerunIdentifier({
+        targetName: "MyAppTests",
+        testIdentifierString: "CheckoutTests/testFails()",
+        testIdentifierURL: "test://com.apple.xcode/CheckoutTests/testFails",
+      }),
+    ).toBe("MyAppTests/CheckoutTests/testFails");
+  });
+
   // Swift Testing matches only with the parentheses, labels and all.
   it("keeps a Swift Testing test's parentheses", () => {
     expect(

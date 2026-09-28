@@ -118,18 +118,34 @@ export function testIdentifierFromURL(
 /**
  * Every target, suite and test a run's tree names, as `-only-testing`
  * identifiers, once each and in tree order.
+ *
+ * Undefined when the URLs are not in the shape `testIdentifierFromURL`
+ * expects -- a test bundle whose identifier is not its own name. Seen on
+ * projects, workspaces and packages alike, but a mis-parse would fail every
+ * `--only` as unmatched, so an unknown shape answers "cannot tell" instead.
  */
-export function treeIdentifiers(tree: TestTree | undefined): string[] {
+export function treeIdentifiers(
+  tree: TestTree | undefined,
+): string[] | undefined {
   const seen = new Set<string>();
+  let recognized = true;
   const walk = (nodes: TestNode[] | undefined) => {
     for (const node of nodes ?? []) {
       const id = testIdentifierFromURL(node.nodeIdentifierURL);
       if (id) seen.add(id);
+      if (
+        node.nodeIdentifierURL !== undefined &&
+        /bundle$/i.test(node.nodeType ?? "") &&
+        node.name !== undefined &&
+        id !== node.name
+      ) {
+        recognized = false;
+      }
       walk(node.children);
     }
   };
   walk(tree?.testNodes);
-  return [...seen];
+  return recognized ? [...seen] : undefined;
 }
 
 /** `get test-results activities` — what one test did, step by step. */

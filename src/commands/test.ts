@@ -200,27 +200,30 @@ export async function testCommand(args: string[]): Promise<string> {
   }
 
   const summary = await readTestSummary(run.resultPath).catch(() => undefined);
-  const only = getListFlag(args, "--only");
-  // Only worth the extra xcresulttool calls when the summary counted nothing,
-  // or there are selectors to check against what ran.
-  const [build, tree] = await Promise.all([
+  // Only worth the second xcresulttool call when the summary counted nothing.
+  const build =
     summary?.totalTestCount === 0
-      ? readBuildResults(run.resultPath).catch(() => undefined)
-      : undefined,
-    summary && (only.length > 0 || summary.totalTestCount === 0)
-      ? readTests(run.resultPath).catch(() => undefined)
-      : undefined,
-  ]);
+      ? await readBuildResults(run.resultPath).catch(() => undefined)
+      : undefined;
 
   if (!summary || testsNeverRan(summary, build)) {
     return renderTestsNeverRan(context, run);
   }
+
+  // The tree is what `--only` is checked against, and the only place a run
+  // of zero tests still names its device. Not worth a call otherwise.
+  const only = getListFlag(args, "--only");
+  const tree =
+    only.length > 0 || summary.totalTestCount === 0
+      ? await readTests(run.resultPath).catch(() => undefined)
+      : undefined;
 
   return renderTestSummary({
     context,
     summary,
     tree,
     only,
+    skip: getListFlag(args, "--skip"),
     run,
     maxFailures: getIntFlag(args, "--max-failures") ?? 20,
     full: context.full,
@@ -369,6 +372,7 @@ interface RenderTestSummaryOptions {
   /** Read only when there are `--only` selectors to check, or nothing ran. */
   tree: TestTree | undefined;
   only: string[];
+  skip: string[];
   run: BuildRun;
   maxFailures: number;
   full: boolean;
@@ -378,7 +382,7 @@ interface RenderTestSummaryOptions {
 async function renderTestSummary(
   options: RenderTestSummaryOptions,
 ): Promise<string> {
-  const { summary, run, context, tree, only } = options;
+  const { summary, run, context, tree, only, skip } = options;
   const failed = summary.failedTests ?? 0;
   const passed = summary.passedTests ?? 0;
   const skipped = summary.skippedTests ?? 0;
@@ -387,6 +391,7 @@ async function renderTestSummary(
     exitCode: run.exitCode,
     summary,
     only,
+    skip,
     identifiers,
   });
   const { succeeded, unmatched } = verdict;
@@ -453,13 +458,21 @@ async function renderTestSummary(
   // TEST SUCCEEDED and exits 0 -- so the verdict above is the only place that
   // says so. The hint says how selectors are spelled, since a near miss is
   // the usual cause.
-  if (unmatched.length > 0 || passed + failed + skipped === 0) {
+  if (unmatched.length > 0 || (verdict.ran === 0 && only.length > 0)) {
     hints.push(
       "--only is exact and case-sensitive — Target/Class/method, and a Swift Testing test keeps its parentheses, e.g. MyAppTests/CheckoutSuite/total()",
+    );
+  } else if (verdict.ran === 0) {
+    hints.push(
+      "No tests ran — check --skip, --test-plan and --only-configuration, and that the scheme's test action has tests",
+    );
+  }
+  if (unmatched.length > 0 || verdict.ran === 0) {
+    hints.push(
       `Run \`xcodebuild-axi tests ${context.subject.rerun}\` for the identifiers this scheme has`,
     );
   }
-  if (only.length > 0 && identifiers === undefined) {
+  if (verdict.checked === false) {
     hints.push(
       "The result bundle's test tree could not be read, so --only selectors were not checked against what ran",
     );
@@ -510,6 +523,17 @@ export function testsNeverRan(
   );
 }
 
+export interface TestVerdict {
+  succeeded: boolean;
+  reason?: string;
+  /** `--only` selectors that matched no test in a run that otherwise passed. */
+  unmatched: string[];
+  /** How many tests the summary counted. */
+  ran: number;
+  /** False when `--only` should have been checked but there was no tree. */
+  checked?: boolean;
+}
+
 /**
  * Whether a test run did what it was asked, and if not, why.
  *
@@ -518,36 +542,50 @@ export function testsNeverRan(
  * TEST SUCCEEDED and exits 0 -- alone, or beside selectors that did match --
  * so a new suite not yet in its target, or a selector missing its class, came
  * back as a pass. Every selector is checked against the identifiers the
- * result bundle's tree says ran. With no tree to check, nothing is claimed
- * missing: that would be a guess.
+ * result bundle's tree says ran.
+ *
+ * Only on a run that otherwise passed. A crash or a timeout leaves tests that
+ * never started out of the tree too, and naming their selectors as misses
+ * would send the agent to fix a spelling that was right. A failed run is
+ * already failed; a real miss surfaces on the run after the fix. With no tree
+ * to check, nothing is claimed missing either: that would be a guess.
  */
 export function testVerdict(input: {
   exitCode: number;
   summary: TestSummary;
   only: string[];
+  skip?: string[];
   identifiers: string[] | undefined;
-}): { succeeded: boolean; reason?: string; unmatched: string[] } {
+}): TestVerdict {
   const { summary, only, identifiers } = input;
   const failed = summary.failedTests ?? 0;
-  const ran =
-    summary.totalTestCount ??
-    (summary.passedTests ?? 0) + failed + (summary.skippedTests ?? 0);
+  // `testsNeverRan` has already turned away a summary without a count.
+  const ran = summary.totalTestCount ?? 0;
+  const otherwisePassed = input.exitCode === 0 && failed === 0;
+  const check = only.length > 0 && otherwisePassed;
   const unmatched =
-    only.length > 0 && identifiers ? unmatchedSelectors(only, identifiers) : [];
-  const succeeded =
-    input.exitCode === 0 && failed === 0 && ran > 0 && unmatched.length === 0;
+    check && identifiers
+      ? unmatchedSelectors(only, identifiers, input.skip ?? [])
+      : [];
+  const succeeded = otherwisePassed && ran > 0 && unmatched.length === 0;
 
   // A reason only where the counts do not already explain the verdict: a
-  // failed test is its own reason, and `unmatched` still lists the misses.
+  // failed test is its own reason.
   const reason =
     ran === 0
-      ? only.length > 0
+      ? only.length > 0 && otherwisePassed
         ? "no --only selector matched a test"
         : "no tests ran"
-      : unmatched.length > 0 && input.exitCode === 0 && failed === 0
+      : unmatched.length > 0
         ? `${unmatched.length} --only selector${unmatched.length === 1 ? "" : "s"} matched no test`
         : undefined;
-  return { succeeded, ...(reason ? { reason } : {}), unmatched };
+  return {
+    succeeded,
+    ...(reason ? { reason } : {}),
+    unmatched,
+    ran,
+    ...(check && !identifiers ? { checked: false } : {}),
+  };
 }
 
 /**
@@ -557,14 +595,23 @@ export function testVerdict(input: {
  * trailing slash, and a Swift Testing test only with its parentheses. The one
  * allowance is an XCTest method written with `()`, which xcodebuild accepts
  * and the tree spells without.
+ *
+ * A selector a `--skip` overlaps is left alone: skipping every test under it
+ * also leaves it out of the tree, and that is not a misspelling.
  */
 export function unmatchedSelectors(
   selectors: string[],
   identifiers: string[],
+  skip: string[] = [],
 ): string[] {
   const ran = new Set(identifiers);
+  const overlaps = (a: string, b: string) =>
+    a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
   return selectors.filter(
-    (selector) => !ran.has(selector) && !ran.has(selector.replace(/\(\)$/, "")),
+    (selector) =>
+      !ran.has(selector) &&
+      !ran.has(selector.replace(/\(\)$/, "")) &&
+      !skip.some((skipped) => overlaps(skipped, selector)),
   );
 }
 
@@ -594,8 +641,14 @@ export function landedDevice(
 export function rerunIdentifier(
   failure: TestFailure | undefined,
 ): string | undefined {
+  // Trusted only while it still starts with the target it should name.
   const fromURL = testIdentifierFromURL(failure?.testIdentifierURL);
-  if (fromURL) return fromURL;
+  if (
+    fromURL &&
+    (!failure?.targetName || fromURL.startsWith(`${failure.targetName}/`))
+  ) {
+    return fromURL;
+  }
   const id = failure?.testIdentifierString?.replace(/\(\)$/, "");
   if (!id) return undefined;
   const target = failure?.targetName;

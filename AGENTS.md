@@ -284,8 +284,17 @@ remove that fallback believing the bundle is always sufficient; it is not.
   xcodebuild's, checked against it: exact, case-sensitive, no trailing slash,
   and a Swift Testing test only with its parentheses (`total()`,
   `discount(value:)`); an XCTest method is accepted with or without `()`.
-  `--skip` is not checked, since a test skipped by filter is absent from the
-  tree either way.
+  Things that are easy to get wrong:
+  - **Only on a run that otherwise passed.** A crash or a timeout also leaves
+    tests out of the tree, and calling their selectors misspelled sends the
+    agent after the wrong problem.
+  - **A `--skip` that overlaps a selector excuses it**, since skipping every
+    test under it leaves it out of the tree too. `--skip` itself is not
+    checked: a test skipped by filter is absent either way.
+  - **An unrecognised URL shape is "cannot tell"**, not "nothing matched".
+    Every bundle node's identifier must come out as its own name, or
+    `treeIdentifiers` gives up and the report says the check did not happen —
+    a mis-parse would otherwise fail every `--only` there is.
 
 ## Sharp edges in simctl
 
