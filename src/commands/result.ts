@@ -25,6 +25,7 @@ import {
   readLog,
   readMetrics,
   readTests,
+  testIdentifierFromURL,
   readTestSummary,
   toDiagnostics,
   type ActivityNode,
@@ -931,7 +932,12 @@ export function flattenTests(
   const walk = (node: TestNode): void => {
     if (node.nodeType === "Test Case") {
       rows.push({
-        test: node.nodeIdentifier ?? node.name ?? "",
+        // The URL form carries the target, so a row can be pasted into --only.
+        test:
+          testIdentifierFromURL(node.nodeIdentifierURL) ??
+          node.nodeIdentifier ??
+          node.name ??
+          "",
         result: (node.result ?? "").toLowerCase(),
         duration: node.duration ?? "",
       });

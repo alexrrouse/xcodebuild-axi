@@ -27,7 +27,10 @@ export interface TestFailure {
   testName?: string;
   targetName?: string;
   failureText?: string;
+  /** `CheckoutTests/testFails()` -- no target. See `testIdentifierFromURL`. */
   testIdentifierString?: string;
+  /** `test://com.apple.xcode/<container>/<Target>/<Suite>/<test>` */
+  testIdentifierURL?: string;
 }
 
 export interface TestSummary {
@@ -55,8 +58,13 @@ export interface TestSummary {
 export interface TestNode {
   nodeType?: string;
   name?: string;
-  /** `Target/Suite/testName()`, the identifier `--only` and `--test` take. */
+  /**
+   * `Suite/testName()` -- without the target, and absent on bundle and suite
+   * nodes. `nodeIdentifierURL` carries the whole identifier.
+   */
   nodeIdentifier?: string;
+  /** `test://com.apple.xcode/<container>/<Target>/<Suite>/<test>` */
+  nodeIdentifierURL?: string;
   result?: string;
   /** Pre-formatted by xcresulttool, e.g. `0.028s`. */
   duration?: string;
@@ -75,6 +83,69 @@ export interface TestDetails {
 export interface TestTree {
   devices?: TestDevice[];
   testNodes?: TestNode[];
+}
+
+/**
+ * The identifier `-only-testing` takes, out of a test URL.
+ *
+ * `testIdentifierString` and `nodeIdentifier` both leave out the target, and
+ * guessing it back is ambiguous whenever a class is named for its target --
+ * `MyAppUITests/testCheckout()` could be either half. The URL spells every
+ * level: `test://com.apple.xcode/<container>/<Target>/<Suite>/<test>`. Drop
+ * the container and a parameterized test's `?args=` hash, and what is left
+ * is the selector, parentheses and all: XCTest's methods carry none, and a
+ * Swift Testing test matches only with them.
+ */
+export function testIdentifierFromURL(
+  url: string | undefined,
+): string | undefined {
+  const match = url && /^test:\/\/[^/]*\/([^?#]*)/.exec(url);
+  if (!match) return undefined;
+  const segments = (match[1] as string)
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .slice(1)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    });
+  return segments.length > 0 ? segments.join("/") : undefined;
+}
+
+/**
+ * Every target, suite and test a run's tree names, as `-only-testing`
+ * identifiers, once each and in tree order.
+ *
+ * Undefined when the URLs are not in the shape `testIdentifierFromURL`
+ * expects -- a test bundle whose identifier is not its own name. Seen on
+ * projects, workspaces and packages alike, but a mis-parse would fail every
+ * `--only` as unmatched, so an unknown shape answers "cannot tell" instead.
+ */
+export function treeIdentifiers(
+  tree: TestTree | undefined,
+): string[] | undefined {
+  const seen = new Set<string>();
+  let recognized = true;
+  const walk = (nodes: TestNode[] | undefined) => {
+    for (const node of nodes ?? []) {
+      const id = testIdentifierFromURL(node.nodeIdentifierURL);
+      if (id) seen.add(id);
+      if (
+        node.nodeIdentifierURL !== undefined &&
+        /bundle$/i.test(node.nodeType ?? "") &&
+        node.name !== undefined &&
+        id !== node.name
+      ) {
+        recognized = false;
+      }
+      walk(node.children);
+    }
+  };
+  walk(tree?.testNodes);
+  return recognized ? [...seen] : undefined;
 }
 
 /** `get test-results activities` — what one test did, step by step. */

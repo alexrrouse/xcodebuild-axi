@@ -62,6 +62,22 @@ describe("buildFields", () => {
 });
 
 describe("flattenTests", () => {
+  // A real tree's `nodeIdentifier` leaves out the target, so a row pasted
+  // into `test --only` would match nothing. The URL names it.
+  it("names each test the way --only takes it", () => {
+    const rows = flattenTests([
+      {
+        nodeType: "Test Case",
+        name: "testTotal()",
+        nodeIdentifier: "MyAppTests/testTotal()",
+        nodeIdentifierURL:
+          "test://com.apple.xcode/MyApp/MyAppTests/MyAppTests/testTotal",
+        result: "Passed",
+      },
+    ]);
+    expect(rows[0]?.test).toBe("MyAppTests/MyAppTests/testTotal");
+  });
+
   // Xcode nests plan -> target -> suite -> case. Only the leaves are tests;
   // the branches carry names that look like tests and verdicts that aggregate
   // them, so counting every node would report a 3-test run as 9 tests.
