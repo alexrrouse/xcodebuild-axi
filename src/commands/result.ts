@@ -47,6 +47,7 @@ import {
   type TestNode,
   type TestActivities,
   type TestTree,
+  buildStatus,
 } from "../xcresult.js";
 import { diagnosticsBlock, failureRows } from "../report.js";
 import {
@@ -1179,12 +1180,12 @@ function reportMetadata(metadata: BundleMetadata, bundle: string): string {
 /**
  * The header a non-test bundle reports. A build bundle carries every field the
  * test-shaped query lacks: `actionTitle` names the action xcodebuild ran,
- * `status` is the verdict it recorded, and `destination` is the device it
+ * `status` is the verdict it recorded (see `buildStatus`), and `destination` is the device it
  * actually landed on.
  */
 export function buildFields(build: BuildResults): Record<string, string> {
   return {
-    result: build.status?.toLowerCase() ?? "unknown",
+    result: buildStatus(build) ?? "unknown",
     title: build.actionTitle ?? "",
     destination: describeDevice(build.destination),
     duration:

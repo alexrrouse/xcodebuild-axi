@@ -1,8 +1,15 @@
+import { existsSync } from "node:fs";
 import { newestBundle } from "../bundles.js";
 import { resolveProject, type ProjectContext } from "../context.js";
 import { listSchemes } from "../scheme.js";
 import { artifactDir } from "../xcodebuild.js";
-import { readTestSummary, describeDevice } from "../xcresult.js";
+import {
+  buildStatus,
+  readBuildResults,
+  readTestSummary,
+  describeDevice,
+  type BuildResults,
+} from "../xcresult.js";
 import {
   relativeTime,
   renderFields,
@@ -88,7 +95,6 @@ async function describeLastRun(
   const newest = newestBundle(dir).chosen;
   if (!newest) return undefined;
 
-  const summary = await readTestSummary(newest.path).catch(() => undefined);
   const when = relativeTime(newest.mtimeMs / 1000);
   const where = `see \`xcodebuild-axi result ${tildePath(newest.path)}\``;
   const kind = newest.kind;
@@ -98,14 +104,23 @@ async function describeLastRun(
   // rather than as nothing. Reading that as a verdict rendered a build as
   // "Test - X on unknown — 0 passed", which is the shape of a clean pass and
   // was observed on a real build bundle. The old guard did not catch it
-  // because it tested for `undefined` and the count is `0`.
+  // because it tested for `undefined` and the count is `0`. Every other
+  // kind is read through `build-results` instead, which is where its verdict
+  // lives.
   //
   // Which command wrote the bundle is not a guess: `runLabel` names it
   // `<scheme>[-<device>]-<command>`, and `bundleKind` reads that back past
   // the per-run pid.
   if (kind !== "test") {
-    return `${when} — ${kind} — ${where}`;
+    const results = await readBuildResults(newest.path).catch(() => undefined);
+    const log = newest.path.replace(/\.xcresult$/, ".log");
+    const pointer =
+      failedWithoutErrors(results) && existsSync(log)
+        ? `see ${tildePath(log)}`
+        : where;
+    return `${when} — ${buildVerdict(kind, results) ?? kind} — ${pointer}`;
   }
+  const summary = await readTestSummary(newest.path).catch(() => undefined);
   if (!summary || !summary.totalTestCount) {
     return `${when} — test recorded no tests — ${where}`;
   }
@@ -117,4 +132,62 @@ async function describeLastRun(
       ? `${failed} failed, ${summary.passedTests ?? 0} passed`
       : `${summary.passedTests ?? 0} passed`;
   return `${summary.title ?? "test"} on ${device} — ${verdict} (${when})`;
+}
+
+/**
+ * How a non-test run went, from its bundle's build results: `build
+ * succeeded`, `build failed (2 errors)`. Undefined when the bundle does not
+ * say, so the caller keeps the bare kind rather than guessing.
+ *
+ * Without this the home view named the last build and not whether it worked,
+ * which is the one thing an agent opening a session wants to know about it.
+ * A `run` bundle covers only the build, never the launch, so its verdict is
+ * the build's. Statuses are matched against the words xcresulttool is known
+ * to use, so an unexpected one cannot reach the output.
+ */
+export function buildVerdict(
+  kind: string,
+  results: BuildResults | undefined,
+): string | undefined {
+  const subject = kind === "run" ? "run build" : kind;
+  const status = results && buildStatus(results);
+  const errors = results?.errorCount ?? 0;
+  if (status === "failed" && errors > 0) {
+    return `${subject} failed (${count(errors, "error")})`;
+  }
+  switch (status) {
+    case "succeeded": {
+      const analyzer = results?.analyzerWarningCount ?? 0;
+      return kind === "analyze" && analyzer > 0
+        ? `${subject} succeeded (${count(analyzer, "analyzer warning")})`
+        : `${subject} succeeded`;
+    }
+    case "failed":
+      return `${subject} failed`;
+    // What an xcodebuild that died before building anything can record, with
+    // no error to go with it (see AGENTS.md).
+    case "notrequested":
+      return `${subject} failed before building`;
+    case "cancelled":
+    case "interrupted":
+      return `${subject} ${status}`;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Whether a failed run's bundle has nothing in it worth reading. Then the
+ * transcript is the only witness, so the home view points there instead.
+ */
+export function failedWithoutErrors(results: BuildResults | undefined) {
+  const status = results && buildStatus(results);
+  return (
+    status === "notrequested" ||
+    (status === "failed" && (results?.errorCount ?? 0) === 0)
+  );
+}
+
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }

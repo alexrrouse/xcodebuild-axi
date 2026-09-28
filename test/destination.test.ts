@@ -300,6 +300,33 @@ describe("parseDestinationAnswer on Xcode 27", () => {
     ]);
   });
 
+  // Issue #37: a watchOS-only scheme was built for an iPhone, because the
+  // incompatible iPhones were read as eligible. This is that scheme's answer
+  // from Xcode 27, trimmed.
+  it("defaults a watchOS-only scheme to a watch", () => {
+    const { destinations, generic } = parseDestinationAnswer(`
+	Destinations compatible with the "MyWatchApp" scheme:
+		{ platform:watchOS, id:dvtdevice-DVTiOSDevicePlaceholder-watchos:placeholder, name:Any watchOS Device }
+		{ platform:watchOS Simulator, id:dvtdevice-DVTiOSDeviceSimulatorPlaceholder-watchsimulator:placeholder, name:Any watchOS Simulator Device }
+		{ platform:watchOS Simulator, arch:arm64, id:1A2B3C4D-0000-4000-8000-000000000001, OS:26.5, name:Apple Watch SE 3 (40mm) }
+		{ platform:watchOS Simulator, arch:arm64, id:1A2B3C4D-0000-4000-8000-000000000002, OS:26.5, name:Apple Watch Ultra 3 (49mm) }
+
+	Destinations incompatible with the "MyWatchApp" scheme:
+		{ platform:macOS, arch:arm64e, id:00008112-000539543488C01E, name:My Mac, error:My Mac’s macOS platform doesn’t match MyWatchApp.app’s supported platforms. You can change MyWatchApp.app’s Base SDK or Supported Platforms to support My Mac. }
+		{ platform:iOS Simulator, arch:arm64, id:1A2B3C4D-0000-4000-8000-000000000003, OS:26.5, name:iPhone 17 Pro, error:iPhone 17 Pro’s iOS Simulator platform doesn’t match MyWatchApp.app’s supported platforms. You can change MyWatchApp.app’s Base SDK or Supported Platforms to support iPhone 17 Pro. }
+`);
+    const eligible = destinations.filter((d) => d.eligible);
+    expect(eligible.map((d) => d.platform)).toEqual([
+      "watchOS Simulator",
+      "watchOS Simulator",
+    ]);
+    expect(pickDefault(eligible).name).toBe("Apple Watch SE 3 (40mm)");
+    expect(
+      destinations.find((d) => d.name === "iPhone 17 Pro")?.reason,
+    ).toMatch(/doesn’t match MyWatchApp\.app’s supported platforms/);
+    expect(generic).toEqual(["watchOS", "watchOS Simulator"]);
+  });
+
   it("still reads Xcode 26's headings", () => {
     const { destinations } = parseDestinationAnswer(`
 	Available destinations for the "MyApp" scheme:

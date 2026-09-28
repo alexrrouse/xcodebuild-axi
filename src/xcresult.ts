@@ -434,6 +434,19 @@ export function readBuildResults(path: string): Promise<BuildResults> {
   return xcresulttool<BuildResults>(["get", "build-results"], path);
 }
 
+/**
+ * The verdict a build bundle records, lowercased -- except that errors
+ * outrank it. A build whose destination matched nothing leaves a bundle
+ * saying `succeeded` beside the error that failed it, observed on Xcode 27,
+ * and read at face value that is a failed build reported as a clean one.
+ */
+export function buildStatus(build: BuildResults): string | undefined {
+  const status = build.status?.toLowerCase();
+  return status === "succeeded" && (build.errorCount ?? 0) > 0
+    ? "failed"
+    : status;
+}
+
 /** What `xcresulttool compare` answers: one run measured against another. */
 export interface Differential {
   summary?: DifferentialSummary;
