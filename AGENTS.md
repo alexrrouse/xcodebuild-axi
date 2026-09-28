@@ -149,6 +149,15 @@ beside `errorCount: 1` and the error that failed the build. `buildStatus` in
 `src/xcresult.ts` lets errors outrank the status, and every reader of a build
 verdict — `result`, the home view — goes through it.
 
+A test run whose build failed also records an Uncategorized "Testing
+cancelled because the build failed." row, _before_ the error that failed it.
+It restates the verdict, so `meaningfulErrors` drops it — and the generic
+exit-code row — whenever a real cause is there, and keeps them when nothing
+else is. The cause can be one no compiler reported: a build database locked
+by another build on the same DerivedData, or a source file renamed without
+regenerating the project, both of which only surfaced in the transcript's
+`Testing failed:` block before 0.3.0.
+
 ## Sharp edges in xcodebuild itself
 
 - **It refuses to overwrite a result bundle.** A second run against the same

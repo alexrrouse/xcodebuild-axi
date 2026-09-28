@@ -12,6 +12,7 @@ import {
 } from "./xcodebuild.js";
 import {
   isGenericFailure,
+  meaningfulErrors,
   readBuildResults,
   toDiagnostics,
 } from "./xcresult.js";
@@ -502,6 +503,21 @@ export interface ReportActionOptions {
 }
 
 /**
+ * What to do about a build database another build holds. xcodebuild's own
+ * message guesses at the cause ("Possibly there are two concurrent builds")
+ * and stops there; the way out is a DerivedData of this run's own.
+ */
+export function databaseLockHint(
+  errors: { message: string }[],
+): string | undefined {
+  return errors.some((error) =>
+    /accessing build database .* database is locked/.test(error.message),
+  )
+    ? "Another build is using this DerivedData — wait for it to finish, or pass `--derived-data <path>` to build somewhere else"
+    : undefined;
+}
+
+/**
  * The shared report for any action that compiles something.
  *
  * Errors are the payload on failure, warnings on success, and the full
@@ -513,7 +529,7 @@ export async function reportAction(
   const { run, context } = options;
   const results = await readBuildResults(run.resultPath).catch(() => undefined);
 
-  const errors = toDiagnostics(results?.errors);
+  const errors = toDiagnostics(meaningfulErrors(results?.errors));
   const analyzerWarnings = toDiagnostics(results?.analyzerWarnings);
   const warnings = toDiagnostics([
     ...(results?.warnings ?? []),
@@ -602,6 +618,8 @@ export async function reportAction(
       `Run \`xcodebuild-axi result ${tildePath(run.resultPath)}\` to re-read this run without rebuilding`,
     );
   }
+  const lockHint = databaseLockHint(errors);
+  if (lockHint) hints.push(lockHint);
   blocks.push(renderHelp(hints));
 
   // The agent asked for a build and did not get one. Exit non-zero so `&&`

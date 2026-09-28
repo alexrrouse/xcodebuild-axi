@@ -5,10 +5,13 @@ import {
   runAction,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
+  databaseLockHint,
   subjectField,
   type BuildContext,
 } from "../action.js";
 import {
+  isGenericFailure,
+  meaningfulErrors,
   readBuildResults,
   readTests,
   readTestSummary,
@@ -326,9 +329,10 @@ async function renderTestsNeverRan(
   run: BuildRun,
 ): Promise<string> {
   const results = await readBuildResults(run.resultPath).catch(() => undefined);
-  const errors = toDiagnostics(results?.errors);
+  const errors = toDiagnostics(meaningfulErrors(results?.errors));
 
-  if (errors.length === 0) {
+  // The generic exit-code row alone is no diagnosis; the transcript may be.
+  if (errors.every(isGenericFailure)) {
     const mapped = mapXcodebuildError(run.tail);
     if (mapped) {
       throw new AxiError(mapped.message, mapped.code, [
@@ -362,6 +366,15 @@ async function renderTestsNeverRan(
       result: tildePath(run.resultPath),
     }),
   );
+  const hints: string[] = [];
+  if (errorBlock.hidden > 0) {
+    hints.push(
+      `Run \`xcodebuild-axi test --max-errors ${errors.length}\` to list all ${errors.length} errors`,
+    );
+  }
+  const lockHint = databaseLockHint(errors);
+  if (lockHint) hints.push(lockHint);
+  if (hints.length > 0) blocks.push(renderHelp(hints));
   process.exitCode = 1;
   return renderOutput(blocks);
 }

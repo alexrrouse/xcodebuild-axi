@@ -28,7 +28,7 @@ describe("testsNeverRan", () => {
   it("is true when zero tests ran because the build under them failed", () => {
     expect(
       testsNeverRan(
-        { title: "Test - Ration-UI", totalTestCount: 0 },
+        { title: "Test - MyApp", totalTestCount: 0 },
         {
           status: "failed",
           errorCount: 2,
@@ -41,8 +41,39 @@ describe("testsNeverRan", () => {
               issueType: "Swift Compiler Error",
               message: "Type 'Any' does not conform to the 'Sendable' protocol",
               sourceURL:
-                "file:///x/Tests/SpokenSummaryTests.swift#StartingLineNumber=81",
+                "file:///x/MyAppTests/CheckoutTests.swift#StartingLineNumber=81",
             },
+          ],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  // Issue #38: a build that failed for a reason no compiler gave -- another
+  // build holding the build database, a source file renamed without
+  // regenerating the project. Both shapes as the real bundles recorded them.
+  it.each([
+    [
+      "the build database is locked",
+      'unable to attach DB: error: accessing build database "/tmp/dd/Build/Intermediates.noindex/XCBuildData/build.db": database is locked Possibly there are two concurrent builds running in the same filesystem location.',
+    ],
+    [
+      "a source file is missing",
+      "Build input file cannot be found: '/tmp/MyApp/Sources/Checkout.swift'. Did you forget to declare this file as an output of a script phase or custom build rule which produces it?",
+    ],
+  ])("is true when %s", (_, message) => {
+    expect(
+      testsNeverRan(
+        { title: "Test - MyApp", totalTestCount: 0 },
+        {
+          status: "failed",
+          errorCount: 2,
+          errors: [
+            {
+              issueType: "Uncategorized",
+              message: "Testing cancelled because the build failed.",
+            },
+            { issueType: "Error", message },
           ],
         },
       ),
