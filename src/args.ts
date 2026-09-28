@@ -187,7 +187,7 @@ function renamedFlag(
   known: readonly string[],
 ): string | undefined {
   if (LIVE_SPELLINGS.includes(bare) && known.includes("--live")) {
-    return `${bare} is spelled --live here — it streams the transcript to stderr and still writes the log`;
+    return `to watch the run, ${bare} is spelled --live here — it streams the transcript to stderr and still writes the log. For more detail in the log itself, --log-level verbose`;
   }
   return RENAMED_FLAGS[bare];
 }

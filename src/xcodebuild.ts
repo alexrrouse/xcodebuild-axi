@@ -104,6 +104,9 @@ export const ANNOUNCE_AFTER_MS = 30_000;
 /** How long the report waits for a slow stderr reader before going ahead. */
 const PROGRESS_DRAIN_MS = 2_000;
 
+/** How much transcript a stalled stderr reader may leave queued in memory. */
+export const PROGRESS_BACKLOG_BYTES = 8 * 1024 * 1024;
+
 /**
  * Run a build or test, streaming the transcript straight to disk.
  *
@@ -159,7 +162,9 @@ export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
     child.stderr.on("data", keepTail);
 
     if (options.live) {
-      watcher.announce();
+      // Only once xcodebuild is running: a spawn that fails would otherwise
+      // point at a log that is never written.
+      child.on("spawn", watcher.announce);
       child.stdout.on("data", watcher.write);
       child.stderr.on("data", watcher.write);
     }
@@ -204,18 +209,28 @@ export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
  *
  * The tee ignores backpressure on purpose. Piping into a slow stderr reader
  * would pause the child's stdout, and xcodebuild would block on its own
- * writes: watching the run would stall it. Buffering instead is bounded by
- * the transcript, a few MB at worst.
+ * writes: watching the run would stall it. What a slow reader has not taken
+ * yet is buffered instead, up to `PROGRESS_BACKLOG_BYTES`; past that, chunks
+ * are dropped and the stream says how much it skipped, because a hung run
+ * that loops on output must not grow this process without limit. The log is
+ * written separately and misses nothing.
+ *
+ * Chunks are passed on as bytes, never decoded: a multibyte character split
+ * across two pipe reads would otherwise print as two replacement characters.
  *
  * A reader that goes away (`2>&1 | head`) is an EPIPE on stderr, which the
  * SDK does not handle the way it does stdout. Unhandled, it would kill the
- * process before the report, so a failed sink is simply stopped writing to.
+ * process before the report, so a failed sink is simply stopped writing to --
+ * and the listener that catches that stays attached for as long as any write
+ * is still queued.
  */
 function watchRun(progress: NodeJS.WritableStream, logPath: string) {
   let announced = false;
   let broken = false;
   let pending = 0;
-  let lastByte = "\n";
+  let backlog = 0;
+  let dropped = 0;
+  let endsInNewline = true;
   let drained: (() => void) | undefined;
 
   const onError = () => {
@@ -224,27 +239,49 @@ function watchRun(progress: NodeJS.WritableStream, logPath: string) {
   };
   progress.on("error", onError);
 
-  const send = (text: string) => {
-    if (broken || text.length === 0) return;
+  const send = (bytes: Buffer) => {
+    if (broken || bytes.length === 0) return;
     pending += 1;
-    lastByte = text.slice(-1);
-    progress.write(text, (error) => {
+    backlog += bytes.length;
+    endsInNewline = bytes[bytes.length - 1] === 0x0a;
+    progress.write(bytes, (error) => {
       if (error) broken = true;
       pending -= 1;
+      backlog -= bytes.length;
       if (pending === 0) drained?.();
     });
   };
 
-  const detach = () => progress.removeListener("error", onError);
+  /** Say what a stalled reader missed, once it is reading again. */
+  const reportDropped = () => {
+    if (dropped === 0) return;
+    const skipped = dropped;
+    dropped = 0;
+    send(
+      Buffer.from(
+        `${endsInNewline ? "" : "\n"}[--live skipped ${skipped} bytes while stderr was not being read; the log has all of it]\n`,
+      ),
+    );
+  };
+
+  const detach = () => {
+    if (pending === 0 || broken) progress.removeListener("error", onError);
+  };
 
   return {
     announce() {
       if (announced) return;
       announced = true;
-      send(`${renderFields({ log: tildePath(logPath) })}\n`);
+      send(Buffer.from(`${renderFields({ log: tildePath(logPath) })}\n`));
     },
     write(chunk: Buffer) {
-      send(chunk.toString("utf-8"));
+      if (broken) return;
+      if (backlog + chunk.length > PROGRESS_BACKLOG_BYTES) {
+        dropped += chunk.length;
+        return;
+      }
+      reportDropped();
+      send(chunk);
     },
     detach,
     /**
@@ -253,10 +290,12 @@ function watchRun(progress: NodeJS.WritableStream, logPath: string) {
      * so a reader that never drains cannot hold the report hostage.
      */
     settle(): Promise<void> {
-      if (announced && lastByte !== "\n") send("\n");
+      reportDropped();
+      if (announced && !endsInNewline) send(Buffer.from("\n"));
       return new Promise<void>((done) => {
         const finish = () => {
           clearTimeout(cap);
+          drained = undefined;
           detach();
           done();
         };

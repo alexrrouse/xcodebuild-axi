@@ -8,8 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
-import { runBuild } from "../src/xcodebuild.js";
+import { PROGRESS_BACKLOG_BYTES, runBuild } from "../src/xcodebuild.js";
 
 // `runBuild` against a stand-in xcodebuild, so what reaches stderr can be
 // checked without a project. The fake ignores its arguments, including the
@@ -33,18 +34,20 @@ describe("runBuild progress", () => {
   }
 
   function sink(failing = false) {
-    const chunks: string[] = [];
+    // Kept as bytes and decoded once, so the sink cannot split a character
+    // that the code under test passed through whole.
+    const chunks: Buffer[] = [];
     const stream = new Writable({
       write(chunk: Buffer, _encoding, callback) {
         if (failing) {
           callback(new Error("EPIPE"));
           return;
         }
-        chunks.push(chunk.toString("utf-8"));
+        chunks.push(chunk);
         callback();
       },
     });
-    return { stream, text: () => chunks.join("") };
+    return { stream, text: () => Buffer.concat(chunks).toString("utf-8") };
   }
 
   it("tees the transcript under live, and still writes the log", async () => {
@@ -132,5 +135,85 @@ describe("runBuild progress", () => {
     });
     expect(run.exitCode).toBe(0);
     expect(readFileSync(run.logPath, "utf-8")).toBe("one\ntwo\n");
+  });
+
+  // Swift diagnostics quote names with curly quotes, and a pipe read can end
+  // in the middle of one.
+  it("passes a character split across two reads through intact", async () => {
+    const dir = fakeXcodebuild(
+      `printf '\\342\\200'; sleep 0.2; printf '\\230MyApp\\342\\200\\231\\n'`,
+    );
+    const progress = sink();
+    await runBuild({
+      args: [],
+      label: "MyApp-test",
+      outDir: dir,
+      live: true,
+      progress: progress.stream,
+    });
+    expect(progress.text()).toContain("\u2018MyApp\u2019");
+    expect(progress.text()).not.toContain("\ufffd");
+  });
+
+  /**
+   * A reader that stalls without closing: it takes every write and never
+   * acknowledges one, the way a paused terminal does.
+   */
+  function stalledSink() {
+    const emitter = new EventEmitter();
+    let bytes = 0;
+    let text = "";
+    const stream = Object.assign(emitter, {
+      write(chunk: Buffer | string) {
+        bytes += chunk.length;
+        if (chunk.length < 1024) text += chunk.toString();
+        return false;
+      },
+    }) as unknown as NodeJS.WritableStream;
+    return { stream, emitter, bytes: () => bytes, text: () => text };
+  }
+
+  // A hung run that loops on output must not grow the process without limit.
+  it("stops buffering for a stalled reader and says what it skipped", async () => {
+    const dir = fakeXcodebuild(
+      `head -c ${PROGRESS_BACKLOG_BYTES + 2 * 1024 * 1024} /dev/zero | tr '\\0' x`,
+    );
+    const progress = stalledSink();
+    const run = await runBuild({
+      args: [],
+      label: "MyApp-test",
+      outDir: dir,
+      live: true,
+      progress: progress.stream,
+    });
+    expect(progress.bytes()).toBeLessThanOrEqual(PROGRESS_BACKLOG_BYTES + 1024);
+    expect(progress.text()).toMatch(
+      /\[--live skipped \d+ bytes while stderr was not being read; the log has all of it\]/,
+    );
+    expect(readFileSync(run.logPath).length).toBe(
+      PROGRESS_BACKLOG_BYTES + 2 * 1024 * 1024,
+    );
+
+    // The report went ahead with writes still queued. The reader failing
+    // afterwards must still land on a listener rather than crash the process.
+    expect(() =>
+      progress.emitter.emit("error", new Error("EPIPE")),
+    ).not.toThrow();
+  });
+
+  it("names no log when xcodebuild never started", async () => {
+    const dir = fakeXcodebuild("exit 0");
+    vi.stubEnv("XCODEBUILD_BIN", join(dir, "missing-xcodebuild"));
+    const progress = sink();
+    await expect(
+      runBuild({
+        args: [],
+        label: "MyApp-test",
+        outDir: dir,
+        live: true,
+        progress: progress.stream,
+      }),
+    ).rejects.toThrow();
+    expect(progress.text()).toBe("");
   });
 });

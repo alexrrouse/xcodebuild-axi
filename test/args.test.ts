@@ -115,9 +115,10 @@ describe("rejectUnknownFlags", () => {
         rejectUnknownFlags([guess], "test", ["--live"]);
         expect.unreachable("should have thrown");
       } catch (error) {
-        expect((error as AxiError).suggestions[0]).toBe(
-          `${guess} is spelled --live here — it streams the transcript to stderr and still writes the log`,
-        );
+        const hint = (error as AxiError).suggestions[0];
+        expect(hint).toContain(`${guess} is spelled --live here`);
+        // -verbose in xcodebuild means log verbosity, which is its own flag.
+        expect(hint).toContain("--log-level verbose");
       }
     }
   });

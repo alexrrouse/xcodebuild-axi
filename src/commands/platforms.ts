@@ -40,7 +40,7 @@ flags[12]:
   --architecture <arch> with device-support: e.g. arm64e
   --status              with first-launch: report whether it is needed, and stop
   --check-updates       with first-launch: also check for newer components
-  --live                also print the transcript to stderr as it runs
+  --live                with a download, import, or install: print the transcript to stderr as it runs
 note:
   Downloads are multi-gigabyte and stream to a log rather than to stdout; the
   log path is printed either way, and on stderr once one has run 30 seconds. Known component: MetalToolchain.
