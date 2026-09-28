@@ -1,8 +1,14 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream, mkdirSync, rmSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { pidAlive, pruneRuns, runStem } from "./bundles.js";
 import { AxiError, xcodeNotInstalledError } from "./errors.js";
 import type { ProjectContext } from "./context.js";
 import { renderFields, tildePath } from "./toon.js";
@@ -76,14 +82,70 @@ export interface BuildRun {
   tail: string;
 }
 
-export interface BuildRunOptions {
-  args: string[];
-  /** Filename stem for the log and result bundle, e.g. "MyApp-iPhone-17-Pro". */
+/** Where one run writes, e.g. `.../MyApp-iPhone-17-Pro-26-5-test-4821.log`. */
+export interface RunArtifacts {
+  dir: string;
+  /** Shared by everything the run writes, and by nothing another run does. */
+  stem: string;
+  logPath: string;
+  resultPath: string;
+}
+
+export interface RunPlacement {
+  /** What the run is, e.g. "MyApp-iPhone-17-Pro-26-5-test". Not unique. */
   label: string;
   /** Omit for invocations that act on the toolchain rather than a project. */
   project?: ProjectContext;
-  /** Overrides the cache location for both artifacts. */
+  /** Overrides the cache location for every artifact. */
   outDir?: string;
+}
+
+/**
+ * Claim a log and result bundle path no other run holds, after clearing out
+ * older finished runs of the same label.
+ *
+ * Every run used to be handed `<label>.log` and `<label>.xcresult`, and cleared
+ * the bundle first because xcodebuild refuses to write over one. A run that
+ * outlived its tests then had its bundle deleted and its log truncated by the
+ * next run of the same scheme and device, and reported that run's counts as
+ * its own. Now the log is created exclusively, which makes the claim atomic
+ * even between two runs in one process, and a bundle path is never reused.
+ *
+ * For a caller that writes something beside the log -- `tests`' enumeration,
+ * `run`'s console -- so it can share the run's stem. Anything else can pass
+ * a label to `runBuild` and let it claim.
+ */
+export function prepareRun(placement: RunPlacement): RunArtifacts {
+  const dir =
+    placement.outDir ??
+    (placement.project ? artifactDir(placement.project) : globalArtifactDir());
+  mkdirSync(dir, { recursive: true });
+  pruneArtifacts(dir, placement.label);
+
+  for (let n = 1; ; n += 1) {
+    const stem = runStem(placement.label, process.pid, n);
+    const logPath = join(dir, `${stem}.log`);
+    const resultPath = join(dir, `${stem}.xcresult`);
+    if (existsSync(resultPath)) continue;
+    try {
+      writeFileSync(logPath, "", { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      throw error;
+    }
+    return { dir, stem, logPath, resultPath };
+  }
+}
+
+/** `pruneRuns`, taking each removed bundle's exports with it. */
+export function pruneArtifacts(dir: string, label: string): string[] {
+  return pruneRuns(dir, label, { alive: pidAlive, exportRoot });
+}
+
+export interface BuildRunOptions extends RunPlacement {
+  args: string[];
+  /** Paths already claimed with `prepareRun`; otherwise `runBuild` claims. */
+  artifacts?: RunArtifacts;
   /** Tee the transcript to `progress` as it arrives, as well as to the log. */
   live?: boolean;
   /** Where the log path and a live transcript go. Default: stderr. */
@@ -120,19 +182,9 @@ export const PROGRESS_BACKLOG_BYTES = 8 * 1024 * 1024;
  * `progress`, which is stderr, so stdout is the same with or without it.
  */
 export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
-  const dir =
-    options.outDir ??
-    (options.project ? artifactDir(options.project) : globalArtifactDir());
-  mkdirSync(dir, { recursive: true });
-
-  const logPath = join(dir, `${options.label}.log`);
-  const resultPath = join(dir, `${options.label}.xcresult`);
-
-  // xcodebuild refuses to write over an existing result bundle and dies before
-  // running anything — "error: Existing file at -resultBundlePath". The bundle
-  // is our artifact, not the user's, so clear it rather than make every caller
-  // remember to.
-  rmSync(resultPath, { recursive: true, force: true });
+  // The paths are this run's alone, so there is nothing to clear: xcodebuild
+  // refuses an existing result bundle, and none can exist at a claimed path.
+  const { logPath, resultPath } = options.artifacts ?? prepareRun(options);
 
   const args = [...options.args, "-resultBundlePath", resultPath];
   const started = Date.now();
@@ -345,6 +397,11 @@ export function artifactDir(project: ProjectContext): string {
  * not be dirtied by asking what is in it.
  */
 export function exportDir(bundlePath: string, kind: string): string {
+  return join(exportRoot(bundlePath), kind);
+}
+
+/** Everything exported out of one bundle, of every kind -- pruned with it. */
+export function exportRoot(bundlePath: string): string {
   const hash = createHash("sha256")
     .update(bundlePath)
     .digest("hex")
@@ -357,7 +414,6 @@ export function exportDir(bundlePath: string, kind: string): string {
     "xcodebuild-axi",
     "exports",
     `${stem}-${hash}`,
-    kind,
   );
 }
 

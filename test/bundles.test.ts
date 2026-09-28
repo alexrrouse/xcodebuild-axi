@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -7,8 +8,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { bundleKind, listBundles, newestBundle } from "../src/bundles.js";
+import { basename, join } from "node:path";
+import {
+  bundleKind,
+  listBundles,
+  newestBundle,
+  pruneRuns,
+  runStem,
+} from "../src/bundles.js";
 
 describe("bundleKind", () => {
   // `runLabel` writes `<scheme>[-<device>]-<command>`, so the trailing segment
@@ -26,6 +33,15 @@ describe("bundleKind", () => {
 
   it("handles a scheme with no device slug", () => {
     expect(bundleKind("/cache/MyApp-build.xcresult")).toBe("build");
+  });
+
+  // Every run now carries the pid that wrote it, and a second run of one label
+  // in one process a counter after that. Neither is the command.
+  it("reads past a per-run suffix", () => {
+    expect(
+      bundleKind("/cache/MyApp-iPhone-17-Pro-26-5-test-4821.xcresult"),
+    ).toBe("test");
+    expect(bundleKind("/cache/MyApp-build-4821-2.xcresult")).toBe("build");
   });
 
   it("falls back rather than returning empty", () => {
@@ -91,6 +107,18 @@ describe("newestBundle", () => {
     expect(newestBundle(cache({}))).toEqual({});
   });
 
+  it("passes over a newer build for the last test run when both carry a pid", () => {
+    const dir = cache({
+      "MyApp-iPhone-17-Pro-26-5-test-4821.xcresult": 600,
+      "MyApp-build-5102.xcresult": 60,
+    });
+    const { chosen, skipped } = newestBundle(dir, "test");
+    expect(chosen?.path).toBe(
+      join(dir, "MyApp-iPhone-17-Pro-26-5-test-4821.xcresult"),
+    );
+    expect(skipped?.kind).toBe("build");
+  });
+
   it("orders equal times by name, so the answer is the same every call", () => {
     const dir = cache({ "B-test.xcresult": 5, "A-test.xcresult": 5 });
     expect(listBundles(dir).map((bundle) => bundle.kind)).toEqual([
@@ -98,5 +126,154 @@ describe("newestBundle", () => {
       "test",
     ]);
     expect(newestBundle(dir).chosen?.path).toBe(join(dir, "A-test.xcresult"));
+  });
+});
+
+describe("runStem", () => {
+  it("names a run for its label and the process that wrote it", () => {
+    expect(runStem("MyApp-test", 4821)).toBe("MyApp-test-4821");
+    expect(runStem("MyApp-test", 4821, 2)).toBe("MyApp-test-4821-2");
+  });
+});
+
+describe("pruneRuns", () => {
+  const created: string[] = [];
+  afterEach(() => {
+    for (const dir of created) rmSync(dir, { recursive: true, force: true });
+    created.length = 0;
+  });
+
+  /** A directory holding `entries`, each written that many seconds ago. */
+  function cache(entries: Record<string, number>): string {
+    const dir = mkdtempSync(join(tmpdir(), "axi-prune-"));
+    created.push(dir);
+    const now = Date.now() / 1000;
+    for (const [name, age] of Object.entries(entries)) {
+      const path = join(dir, name);
+      if (name.endsWith(".xcresult")) mkdirSync(path);
+      else writeFileSync(path, "");
+      utimesSync(path, now - age, now - age);
+    }
+    return dir;
+  }
+
+  function prune(dir: string, label: string, live: number[] = []) {
+    const exports = join(dir, "exports");
+    const removed = pruneRuns(dir, label, {
+      alive: (pid) => live.includes(pid),
+      exportRoot: (bundle) =>
+        join(exports, basename(bundle).replace(/\.xcresult$/, "")),
+    });
+    return { removed: removed.map((path) => basename(path)).sort(), exports };
+  }
+
+  // The bug this exists for: a run that has not finished reading its own
+  // bundle must never lose it to the next run of the same label.
+  it("keeps every run whose process is still alive", () => {
+    const dir = cache({
+      "MyApp-test-100.xcresult": 900,
+      "MyApp-test-100.log": 900,
+      "MyApp-test-200.xcresult": 600,
+      "MyApp-test-300.xcresult": 300,
+    });
+    expect(prune(dir, "MyApp-test", [100, 200]).removed).toEqual([]);
+    expect(existsSync(join(dir, "MyApp-test-100.xcresult"))).toBe(true);
+  });
+
+  it("keeps the newest finished run and removes everything of the older ones", () => {
+    const dir = cache({
+      "MyApp-test-100.xcresult": 900,
+      "MyApp-test-100.log": 900,
+      "MyApp-tests-150.json": 800,
+      "MyApp-run-160-console.log": 800,
+      "MyApp-test-200.xcresult": 600,
+      "MyApp-test-200.log": 600,
+      "MyApp-test-200-2.log": 500,
+    });
+    mkdirSync(join(dir, "exports", "MyApp-test-100"), { recursive: true });
+
+    const { removed, exports } = prune(dir, "MyApp-test");
+    expect(removed).toEqual([
+      "MyApp-test-100",
+      "MyApp-test-100.log",
+      "MyApp-test-100.xcresult",
+      "MyApp-test-200.log",
+      "MyApp-test-200.xcresult",
+    ]);
+    expect(existsSync(join(exports, "MyApp-test-100"))).toBe(false);
+    expect(existsSync(join(dir, "MyApp-test-200-2.log"))).toBe(true);
+    // Other labels are not this run's to clean up.
+    expect(existsSync(join(dir, "MyApp-tests-150.json"))).toBe(true);
+    expect(existsSync(join(dir, "MyApp-run-160-console.log"))).toBe(true);
+  });
+
+  it("recognises every artifact a run leaves beside its bundle", () => {
+    const dir = cache({
+      "MyApp-tests-150.json": 900,
+      "MyApp-tests-150.log": 900,
+      "MyApp-tests-150.xcresult": 900,
+      "MyApp-tests-250.log": 100,
+    });
+    expect(prune(dir, "MyApp-tests").removed).toEqual([
+      "MyApp-tests-150.json",
+      "MyApp-tests-150.log",
+      "MyApp-tests-150.xcresult",
+    ]);
+
+    const run = cache({
+      "MyApp-run-160-console.log": 900,
+      "MyApp-run-160.log": 900,
+      "MyApp-run-260.log": 100,
+    });
+    expect(prune(run, "MyApp-run").removed).toEqual([
+      "MyApp-run-160-console.log",
+      "MyApp-run-160.log",
+    ]);
+  });
+
+  // Written before runs carried a pid. Treated as finished, so the first new
+  // run keeps it as the previous one and the second removes it.
+  it("ages out a bundle from before runs were suffixed", () => {
+    const dir = cache({
+      "MyApp-test.xcresult": 900,
+      "MyApp-test.log": 900,
+    });
+    expect(prune(dir, "MyApp-test").removed).toEqual([]);
+
+    const now = Date.now() / 1000;
+    mkdirSync(join(dir, "MyApp-test-4821.xcresult"));
+    utimesSync(join(dir, "MyApp-test-4821.xcresult"), now, now);
+    expect(prune(dir, "MyApp-test").removed).toEqual([
+      "MyApp-test.log",
+      "MyApp-test.xcresult",
+    ]);
+  });
+
+  it("never touches a label that merely starts the same way, or other files", () => {
+    const dir = cache({
+      "MyApp-test-100.xcresult": 900,
+      "MyApp-test-200.xcresult": 100,
+      "MyApp-tests-300.xcresult": 1000,
+      "MyApp-test-extra-400.xcresult": 1000,
+      "MyApp.xcarchive": 1000,
+      "notes.txt": 1000,
+    });
+    expect(prune(dir, "MyApp-test").removed).toEqual([
+      "MyApp-test-100.xcresult",
+    ]);
+    for (const name of [
+      "MyApp-tests-300.xcresult",
+      "MyApp-test-extra-400.xcresult",
+      "MyApp.xcarchive",
+      "notes.txt",
+    ]) {
+      expect(existsSync(join(dir, name))).toBe(true);
+    }
+  });
+
+  it("answers nothing, rather than throwing, for a directory it cannot read", () => {
+    expect(
+      pruneRuns(join(tmpdir(), "axi-does-not-exist"), "MyApp-test"),
+    ).toEqual([]);
   });
 });

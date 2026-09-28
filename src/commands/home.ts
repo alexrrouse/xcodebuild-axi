@@ -101,7 +101,8 @@ async function describeLastRun(
   // because it tested for `undefined` and the count is `0`.
   //
   // Which command wrote the bundle is not a guess: `runLabel` names it
-  // `<scheme>[-<device>]-<command>`, so the suffix is authoritative.
+  // `<scheme>[-<device>]-<command>`, and `bundleKind` reads that back past
+  // the per-run pid.
   if (kind !== "test") {
     return `${when} — ${kind} — ${where}`;
   }

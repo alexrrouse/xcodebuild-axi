@@ -4,7 +4,12 @@ import { AxiError, DeviceBusyError, mapXcodebuildError } from "./errors.js";
 import { requireProject, type ProjectContext } from "./context.js";
 import { resolveSubject, type Subject } from "./scheme.js";
 import { destinationSlug, resolveDestination } from "./destination.js";
-import { runBuild, type BuildRun } from "./xcodebuild.js";
+import {
+  prepareRun,
+  runBuild,
+  type BuildRun,
+  type RunArtifacts,
+} from "./xcodebuild.js";
 import { readBuildResults, toDiagnostics } from "./xcresult.js";
 import { diagnosticsBlock, transcriptTail } from "./report.js";
 import {
@@ -428,7 +433,10 @@ export function subjectField(context: BuildContext): Record<string, string> {
     : { scheme: context.scheme };
 }
 
-/** A filesystem stem that distinguishes runs of different commands and devices. */
+/**
+ * What a run is -- its command and device -- as a filesystem name. Not unique
+ * to one run: `runStem` adds that, and `bundleKind` reads the command back.
+ */
 export function runLabel(context: BuildContext, command: string): string {
   const device = context.destination
     ? `-${destinationSlug(context.destination)}`
@@ -443,10 +451,27 @@ export interface RunActionOptions {
   actions: string[];
   /** Extra arguments appended after the shared ones. */
   extraArgs?: string[];
+  /** Paths from `prepareAction`, when the caller writes beside the log. */
+  artifacts?: RunArtifacts;
+}
+
+/** Claim this run's paths up front, for a command that writes beside them. */
+export function prepareAction(
+  context: BuildContext,
+  command: string,
+): RunArtifacts {
+  return prepareRun({
+    label: runLabel(context, command),
+    project: context.project,
+    ...(context.artifactsDir !== undefined
+      ? { outDir: context.artifactsDir }
+      : {}),
+  });
 }
 
 export function runAction(options: RunActionOptions): Promise<BuildRun> {
   return runBuild({
+    ...(options.artifacts ? { artifacts: options.artifacts } : {}),
     args: [
       ...options.context.xcodebuildArgs,
       ...(options.extraArgs ?? []),

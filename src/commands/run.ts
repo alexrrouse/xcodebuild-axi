@@ -5,6 +5,7 @@ import {
   BUILD_FLAG_HELP,
   reportAction,
   resolveLockedContext,
+  prepareAction,
   runAction,
   runLabel,
   SHARED_BUILD_FLAGS,
@@ -20,7 +21,8 @@ import {
   simctl,
   type Simulator,
 } from "../simctl.js";
-import { artifactDir, runMetadata } from "../xcodebuild.js";
+import { artifactDir, pruneArtifacts, runMetadata } from "../xcodebuild.js";
+import { runStem } from "../bundles.js";
 import { renderFields, renderHelp, renderOutput, tildePath } from "../toon.js";
 import { parseAppSettings } from "./settings.js";
 import { shellQuote } from "../redirect.js";
@@ -129,9 +131,26 @@ export async function runCommand(args: string[]): Promise<string> {
     },
   );
 
+  // The app's console is named for this run like the build's log, so the
+  // `console:` path a report printed is not the next run's app talking.
+  const label = runLabel(context, "run");
+  const artifacts = hasFlag(args, "--no-build")
+    ? undefined
+    : prepareAction(context, "run");
+  const stem = artifacts?.stem ?? runStem(label);
+  // The console stays in the cache, where the app can write, even when the
+  // build log went to --artifacts-dir -- so it is pruned there on its own.
+  const consoleDir = artifactDir(context.project);
+  if (artifacts?.dir !== consoleDir) pruneArtifacts(consoleDir, label);
+
   let build: Awaited<ReturnType<typeof runAction>> | undefined;
-  if (!hasFlag(args, "--no-build")) {
-    build = await runAction({ context, command: "run", actions: ["build"] });
+  if (artifacts) {
+    build = await runAction({
+      context,
+      command: "run",
+      actions: ["build"],
+      artifacts,
+    });
     if (build.exitCode !== 0) {
       return reportAction({
         context,
@@ -166,10 +185,7 @@ export async function runCommand(args: string[]): Promise<string> {
             product,
             env,
             launchArgs,
-            join(
-              artifactDir(context.project),
-              `${runLabel(context, "run")}-console.log`,
-            ),
+            join(consoleDir, `${stem}-console.log`),
           );
   } finally {
     release();

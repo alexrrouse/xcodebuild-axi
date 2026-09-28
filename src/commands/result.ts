@@ -533,10 +533,11 @@ async function runExport(
     );
   }
 
-  // The default directory is keyed on the bundle, and a bundle's path is
-  // reused by the next run of the same scheme and device. Without clearing
-  // it, a second probe's export lands beside the first one's screenshots and
-  // counts them as its own. A --to directory is the caller's, and left alone.
+  // The default directory is keyed on the bundle. Every run now has its own
+  // bundle path, but exporting the same bundle twice -- or one from outside
+  // the cache, which may be rewritten in place -- would otherwise land beside
+  // the last export's files and count them as its own. A --to directory is
+  // the caller's, and left alone.
   if (!requested) rmSync(outputPath, { recursive: true, force: true });
 
   await exportBundle({

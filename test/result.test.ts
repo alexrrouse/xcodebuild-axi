@@ -219,14 +219,16 @@ describe("result with no path", () => {
 
   it("reads the last test run and says a newer build was passed over", () => {
     const dir = cache({
-      "MyApp-iPhone-17-Pro-test.xcresult": 5,
-      "MyApp-build.xcresult": 1,
+      "MyApp-iPhone-17-Pro-26-5-test-4821.xcresult": 5,
+      "MyApp-build-5102.xcresult": 1,
     });
     const target = defaultBundle(project, true, dir);
-    expect(target.path).toBe(join(dir, "MyApp-iPhone-17-Pro-test.xcresult"));
+    expect(target.path).toBe(
+      join(dir, "MyApp-iPhone-17-Pro-26-5-test-4821.xcresult"),
+    );
     expect(target.written).toBe("just now");
     expect(target.newer).toMatch(
-      /^a build just now at .*MyApp-build\.xcresult$/,
+      /^a build just now at .*MyApp-build-5102\.xcresult$/,
     );
   });
 

@@ -147,8 +147,9 @@ remove that fallback believing the bundle is always sufficient; it is not.
 
 - **It refuses to overwrite a result bundle.** A second run against the same
   path dies with `error: Existing file at -resultBundlePath` before running
-  anything. `runBuild` clears the bundle first — the bundle is our artifact,
-  not the user's.
+  anything. `runBuild` used to clear the bundle first, which is how one run
+  deleted another's (see "Where artifacts go"); now every run claims a path
+  nobody has used, so there is nothing to clear.
 - **The preamble is unconditional.** Every invocation, including read-only
   ones, reprints the command line, `Resolve Package Graph`, and the full
   resolved package list. In a workspace with 16 local packages that is ~1.2 KB
@@ -460,7 +461,9 @@ Decisions that are not obvious from the code:
 - **The lock does not cover every contention.** The issue that asked for it
   also reported `settings --for-index` and `packages --resolve` colliding with
   a test run; neither touches a simulator, so no device lock would have
-  stopped them.
+  stopped them. Nor does it keep two runs' artifacts apart: `test` releases
+  the device before it reads its bundle, and a run queued with `--wait`
+  starts in that gap. Per-run artifact names do that job, not the lock.
 
 ## `migrate` is the one command that edits tracked files
 
@@ -503,19 +506,49 @@ and bundle paths, so nothing is hidden by being out of the way.
 per simulator currently in use, shared across every project on the machine
 because the simulators are.
 
+**Every run gets its own log and bundle**:
+`<scheme>[-<device>]-<command>-<pid>[-<n>]`, e.g.
+`MyApp-iPhone-17-Pro-26-5-test-4821.xcresult`. They used to be named for the
+scheme, device and command alone, and a run that outlived its tests had its
+bundle deleted and its log truncated by the next run of the same pair — then
+reported that run's counts as its own, beside a `failed` verdict that was its
+real one. `prepareRun` in `src/xcodebuild.ts` claims the stem by creating the
+log with `wx`, so the claim is atomic even within one process; `-<n>` covers a
+second run of one label there. Anything a run writes beside its log (`tests`'
+enumeration JSON, `run`'s console) takes the same stem via `prepareAction`.
+
+The pid is in the name, rather than a timestamp, because it does two jobs a
+timestamp cannot. Two live processes never share one, so it is unique where
+it matters; and it tells a finished run from a live one. Ordering is left to
+mtime. A timestamp would also have cost every report ~14 tokens in the two
+paths it prints; the pid costs ~3 each.
+
+Without pruning the cache would grow a bundle per run for ever, so each run
+starts by removing older finished runs of **its own label** (`pruneRuns` in
+`src/bundles.ts`), taking their exports with them. A run whose pid is alive is
+never touched, since it may not have read its bundle yet; a reused pid errs
+toward keeping. The newest finished run is kept too, so the path the last
+report printed still works while the next run goes — `result <previous>
+--against <new>` depends on that. Per label, so a build never removes the
+test bundle `result` falls back to. `--artifacts-dir` is pruned the same way:
+the old names were already overwritten in place there, and this is narrower.
+There is deliberately no "latest" symlink: mtime already answers that, and a
+link ending in `.xcresult` would be listed twice.
+
 `result` with no path reads the newest bundle in that directory, and the home
 view reports on the same one; both go through `src/bundles.ts`. Recency is the
 mtime. The name matters only for the kind: reads that mean nothing on a build
 (`--export attachments`, `--tests`, …) take the newest _test_ bundle, and
-`bundleKind` is the one place that parses `runLabel`'s
-`<scheme>[-<device>]-<command>` naming to decide that. Rename the bundles and it
-has to change in the same commit. A run given `--artifacts-dir` is invisible to
-the default by design — it is not in the directory, and the refusal says so.
+`bundleKind` is the one place that parses the naming to decide that — it
+strips the all-digit per-run suffix, then takes the command. Rename the
+bundles and it has to change in the same commit. A run given
+`--artifacts-dir` is invisible to the default by design — it is not in the
+directory, and the refusal says so.
 
-`--export`'s default directory is keyed on the bundle path, which the next run
-of the same scheme and device reuses, so `result` clears it before writing. A
-second probe run otherwise exported beside the first one's screenshots and
-counted them as its own.
+`--export`'s default directory is keyed on the bundle path, and `result`
+clears it before writing, so exporting one bundle twice — or a bundle outside
+the cache that was rewritten in place — does not count the last export's
+screenshots as its own.
 
 ## stdout is the answer; stderr is for watching
 
