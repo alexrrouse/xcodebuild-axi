@@ -66,6 +66,12 @@ describe("buildFields", () => {
     expect(buildFields({ status: "succeeded", errorCount: 1 }).result).toBe(
       "failed",
     );
+    expect(
+      buildFields({
+        status: "succeeded",
+        errors: [{ message: "Unable to find a device" }],
+      }).result,
+    ).toBe("failed");
   });
 });
 

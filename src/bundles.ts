@@ -99,6 +99,11 @@ export function runStem(label: string, pid = process.pid, n = 1): string {
   return n > 1 ? `${label}-${pid}-${n}` : `${label}-${pid}`;
 }
 
+/** The log written beside a bundle: every run's artifacts share one stem. */
+export function logFor(bundlePath: string): string {
+  return bundlePath.replace(/\.xcresult$/, ".log");
+}
+
 /**
  * Every file a run can leave, as the suffix after its stem. The log is the
  * claim; the others are written beside it by `tests` and `run`.
