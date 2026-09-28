@@ -471,18 +471,14 @@ export function prepareAction(
 
 export function runAction(options: RunActionOptions): Promise<BuildRun> {
   return runBuild({
-    ...(options.artifacts ? { artifacts: options.artifacts } : {}),
+    artifacts:
+      options.artifacts ?? prepareAction(options.context, options.command),
     args: [
       ...options.context.xcodebuildArgs,
       ...(options.extraArgs ?? []),
       ...options.actions,
     ],
-    label: runLabel(options.context, options.command),
-    project: options.context.project,
     live: options.context.live,
-    ...(options.context.artifactsDir !== undefined
-      ? { outDir: options.context.artifactsDir }
-      : {}),
   });
 }
 

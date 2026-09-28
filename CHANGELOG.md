@@ -35,8 +35,9 @@ attachments` with no bundle path copied in between. Reads only a test run can
   bundle.** A run that outlived its tests had its bundle deleted and its log
   truncated by the next run of the same pair, then reported that run's counts
   as its own. Each run now writes `<scheme>-<device>-<command>-<pid>`, and
-  starts by clearing older finished runs of the same kind — keeping the
-  previous one, and any still running — so the cache stays bounded. `tests`'
+  starts by clearing older finished runs of the same kind from the cache —
+  keeping the previous one, and any still running — so it stays bounded.
+  `--artifacts-dir` is never pruned. `tests`'
   enumeration and `run`'s console are named per run the same way. A script
   that hardcoded a filename under `--artifacts-dir` should read the report's
   `result:` field instead. Closes #35.

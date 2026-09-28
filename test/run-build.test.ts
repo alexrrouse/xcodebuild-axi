@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chmodSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -10,7 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
-import { PROGRESS_BACKLOG_BYTES, runBuild } from "../src/xcodebuild.js";
+import {
+  claimStem,
+  prepareRun,
+  PROGRESS_BACKLOG_BYTES,
+  runBuild,
+} from "../src/xcodebuild.js";
 
 // `runBuild` against a stand-in xcodebuild, so what reaches stderr can be
 // checked without a project. The fake ignores its arguments, including the
@@ -308,5 +315,36 @@ echo "finished $AXI_TAG"
       join(dir, `MyApp-test-${process.pid}.xcresult`),
     );
     expect(run.logPath).toBe(join(dir, `MyApp-test-${process.pid}.log`));
+  });
+
+  // A reused pid can meet a kept run's files, and one process can run a
+  // label twice. Either way the stem after them is the one taken.
+  it("claims a stem no file of the label uses yet", () => {
+    const dir = mkdtempSync(join(tmpdir(), "axi-claim-"));
+    created.push(dir);
+    mkdirSync(join(dir, `MyApp-test-${process.pid}.xcresult`));
+    writeFileSync(join(dir, `MyApp-test-${process.pid}-2-console.log`), "");
+    expect(claimStem(dir, "MyApp-test", ".log")).toBe(
+      `MyApp-test-${process.pid}-3`,
+    );
+    expect(claimStem(dir, "MyApp-test", ".log")).toBe(
+      `MyApp-test-${process.pid}-4`,
+    );
+  });
+
+  // A CI job that runs three test plans and uploads at the end wants all
+  // three, so a directory the caller named is never housekept.
+  it("prunes nothing in a directory the caller named", () => {
+    const dir = mkdtempSync(join(tmpdir(), "axi-outdir-"));
+    created.push(dir);
+    for (const pid of [1, 2, 3]) {
+      mkdirSync(join(dir, `MyApp-test-${2 ** 22 + pid}.xcresult`));
+    }
+    prepareRun({ label: "MyApp-test", outDir: dir });
+    for (const pid of [1, 2, 3]) {
+      expect(
+        existsSync(join(dir, `MyApp-test-${2 ** 22 + pid}.xcresult`)),
+      ).toBe(true);
+    }
   });
 });

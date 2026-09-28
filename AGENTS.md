@@ -525,15 +525,25 @@ paths it prints; the pid costs ~3 each.
 
 Without pruning the cache would grow a bundle per run for ever, so each run
 starts by removing older finished runs of **its own label** (`pruneRuns` in
-`src/bundles.ts`), taking their exports with them. A run whose pid is alive is
-never touched, since it may not have read its bundle yet; a reused pid errs
-toward keeping. The newest finished run is kept too, so the path the last
-report printed still works while the next run goes — `result <previous>
---against <new>` depends on that. Per label, so a build never removes the
-test bundle `result` falls back to. `--artifacts-dir` is pruned the same way:
-the old names were already overwritten in place there, and this is narrower.
-There is deliberately no "latest" symlink: mtime already answers that, and a
-link ending in `.xcresult` would be listed twice.
+`src/bundles.ts`), taking their exports with them. Decisions in it that are
+easy to undo:
+
+- **A run whose process is alive is never touched**, since it may not have
+  read its bundle yet. "Alive" is the pid _and_ `ps -o lstart=` predating the
+  run's first file, as the device lock judges a holder — `kill(pid, 0)` alone
+  kept a finished run for as long as whatever reused its pid lived.
+- **The newest finished run with a bundle is kept**, so the path the last
+  report printed still works while the next run goes — `result <previous>
+--against <new>` depends on that. Only a bundle counts: a `run --no-build`
+  leaves just a console and a run killed before xcodebuild started just an
+  empty log, and either used to push the last real bundle out.
+- **Per label**, so a build never removes the test bundle `result` falls back
+  to.
+- **Never in `--artifacts-dir`.** That directory is the caller's: a CI job
+  that runs three test plans under one scheme and uploads at the end wants
+  all three. Only the cache is housekept.
+- **No "latest" symlink.** mtime already answers that, and a link ending in
+  `.xcresult` would be listed twice.
 
 `result` with no path reads the newest bundle in that directory, and the home
 view reports on the same one; both go through `src/bundles.ts`. Recency is the

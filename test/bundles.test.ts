@@ -15,6 +15,7 @@ import {
   newestBundle,
   pruneRuns,
   runStem,
+  runStillGoing,
 } from "../src/bundles.js";
 
 describe("bundleKind", () => {
@@ -129,6 +130,27 @@ describe("newestBundle", () => {
   });
 });
 
+describe("runStillGoing", () => {
+  const now = Date.now();
+  const at = (ms: number) => new Date(ms).toString();
+
+  it("counts a live process that started before the run's files", () => {
+    expect(runStillGoing(process.pid, now, () => at(now - 60_000))).toBe(true);
+  });
+
+  // After a reboot, low pids come round again and can live for days. A
+  // process that started after the run's first file cannot have written it.
+  it("does not count a reused pid", () => {
+    expect(runStillGoing(process.pid, now - 3_600_000, () => at(now))).toBe(
+      false,
+    );
+  });
+
+  it("does not count a process that is gone", () => {
+    expect(runStillGoing(2 ** 22 + 1, now, () => undefined)).toBe(false);
+  });
+});
+
 describe("runStem", () => {
   it("names a run for its label and the process that wrote it", () => {
     expect(runStem("MyApp-test", 4821)).toBe("MyApp-test-4821");
@@ -180,7 +202,7 @@ describe("pruneRuns", () => {
     expect(existsSync(join(dir, "MyApp-test-100.xcresult"))).toBe(true);
   });
 
-  it("keeps the newest finished run and removes everything of the older ones", () => {
+  it("keeps the newest finished bundle and removes everything of the older runs", () => {
     const dir = cache({
       "MyApp-test-100.xcresult": 900,
       "MyApp-test-100.log": 900,
@@ -197,11 +219,10 @@ describe("pruneRuns", () => {
       "MyApp-test-100",
       "MyApp-test-100.log",
       "MyApp-test-100.xcresult",
-      "MyApp-test-200.log",
-      "MyApp-test-200.xcresult",
+      "MyApp-test-200-2.log",
     ]);
     expect(existsSync(join(exports, "MyApp-test-100"))).toBe(false);
-    expect(existsSync(join(dir, "MyApp-test-200-2.log"))).toBe(true);
+    expect(existsSync(join(dir, "MyApp-test-200.xcresult"))).toBe(true);
     // Other labels are not this run's to clean up.
     expect(existsSync(join(dir, "MyApp-tests-150.json"))).toBe(true);
     expect(existsSync(join(dir, "MyApp-run-160-console.log"))).toBe(true);
@@ -212,7 +233,7 @@ describe("pruneRuns", () => {
       "MyApp-tests-150.json": 900,
       "MyApp-tests-150.log": 900,
       "MyApp-tests-150.xcresult": 900,
-      "MyApp-tests-250.log": 100,
+      "MyApp-tests-250.xcresult": 100,
     });
     expect(prune(dir, "MyApp-tests").removed).toEqual([
       "MyApp-tests-150.json",
@@ -223,12 +244,29 @@ describe("pruneRuns", () => {
     const run = cache({
       "MyApp-run-160-console.log": 900,
       "MyApp-run-160.log": 900,
-      "MyApp-run-260.log": 100,
+      "MyApp-run-260.xcresult": 100,
     });
     expect(prune(run, "MyApp-run").removed).toEqual([
       "MyApp-run-160-console.log",
       "MyApp-run-160.log",
     ]);
+  });
+
+  // A `run --no-build` leaves only a console, and a run killed before
+  // xcodebuild started only an empty log. Neither is a run anyone can read a
+  // result from, so neither may push the last real bundle out.
+  it("keeps the last bundle past newer runs that wrote none", () => {
+    const dir = cache({
+      "MyApp-run-100.xcresult": 900,
+      "MyApp-run-100.log": 900,
+      "MyApp-run-200-console.log": 600,
+      "MyApp-run-300.log": 300,
+    });
+    expect(prune(dir, "MyApp-run").removed).toEqual([
+      "MyApp-run-200-console.log",
+      "MyApp-run-300.log",
+    ]);
+    expect(existsSync(join(dir, "MyApp-run-100.xcresult"))).toBe(true);
   });
 
   // Written before runs carried a pid. Treated as finished, so the first new

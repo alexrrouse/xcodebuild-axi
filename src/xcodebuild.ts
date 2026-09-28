@@ -8,7 +8,12 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { pidAlive, pruneRuns, runStem } from "./bundles.js";
+import {
+  pruneRuns,
+  RUN_ARTIFACT_SUFFIXES,
+  runStem,
+  runStillGoing,
+} from "./bundles.js";
 import { AxiError, xcodeNotInstalledError } from "./errors.js";
 import type { ProjectContext } from "./context.js";
 import { renderFields, tildePath } from "./toon.js";
@@ -108,44 +113,60 @@ export interface RunPlacement {
  * the bundle first because xcodebuild refuses to write over one. A run that
  * outlived its tests then had its bundle deleted and its log truncated by the
  * next run of the same scheme and device, and reported that run's counts as
- * its own. Now the log is created exclusively, which makes the claim atomic
- * even between two runs in one process, and a bundle path is never reused.
+ * its own. Now the stem is claimed and a bundle path is never reused.
+ *
+ * A directory the caller named with `--artifacts-dir` is theirs: nothing in
+ * it is pruned, since a CI job that runs three test plans and uploads at the
+ * end wants all three. Only the cache is housekept.
  *
  * For a caller that writes something beside the log -- `tests`' enumeration,
- * `run`'s console -- so it can share the run's stem. Anything else can pass
- * a label to `runBuild` and let it claim.
+ * `run`'s console -- so it can share the run's stem.
  */
 export function prepareRun(placement: RunPlacement): RunArtifacts {
   const dir =
     placement.outDir ??
     (placement.project ? artifactDir(placement.project) : globalArtifactDir());
   mkdirSync(dir, { recursive: true });
-  pruneArtifacts(dir, placement.label);
+  if (placement.outDir === undefined) pruneArtifacts(dir, placement.label);
 
+  const stem = claimStem(dir, placement.label, ".log");
+  return {
+    dir,
+    stem,
+    logPath: join(dir, `${stem}.log`),
+    resultPath: join(dir, `${stem}.xcresult`),
+  };
+}
+
+/**
+ * The first `runStem` of `label` in `dir` that no file uses yet, claimed by
+ * creating `<stem><suffix>` exclusively -- so neither two runs in one
+ * process, nor a run given a pid a finished one used, can both take it.
+ */
+export function claimStem(dir: string, label: string, suffix: string): string {
   for (let n = 1; ; n += 1) {
-    const stem = runStem(placement.label, process.pid, n);
-    const logPath = join(dir, `${stem}.log`);
-    const resultPath = join(dir, `${stem}.xcresult`);
-    if (existsSync(resultPath)) continue;
+    const stem = runStem(label, process.pid, n);
+    const taken = RUN_ARTIFACT_SUFFIXES.some((end) =>
+      existsSync(join(dir, stem + end)),
+    );
+    if (taken) continue;
     try {
-      writeFileSync(logPath, "", { flag: "wx" });
+      writeFileSync(join(dir, stem + suffix), "", { flag: "wx" });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
       throw error;
     }
-    return { dir, stem, logPath, resultPath };
+    return stem;
   }
 }
 
 /** `pruneRuns`, taking each removed bundle's exports with it. */
 export function pruneArtifacts(dir: string, label: string): string[] {
-  return pruneRuns(dir, label, { alive: pidAlive, exportRoot });
+  return pruneRuns(dir, label, { alive: runStillGoing, exportRoot });
 }
 
-export interface BuildRunOptions extends RunPlacement {
+interface BuildRunCommon {
   args: string[];
-  /** Paths already claimed with `prepareRun`; otherwise `runBuild` claims. */
-  artifacts?: RunArtifacts;
   /** Tee the transcript to `progress` as it arrives, as well as to the log. */
   live?: boolean;
   /** Where the log path and a live transcript go. Default: stderr. */
@@ -153,6 +174,10 @@ export interface BuildRunOptions extends RunPlacement {
   /** How long a run goes before its log path is announced. */
   announceAfterMs?: number;
 }
+
+/** A placement for `runBuild` to claim paths in, or paths already claimed. */
+export type BuildRunOptions = BuildRunCommon &
+  (RunPlacement | { artifacts: RunArtifacts });
 
 /**
  * Past this, a run announces where its log is, so a wedged one can be tailed
@@ -184,7 +209,8 @@ export const PROGRESS_BACKLOG_BYTES = 8 * 1024 * 1024;
 export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
   // The paths are this run's alone, so there is nothing to clear: xcodebuild
   // refuses an existing result bundle, and none can exist at a claimed path.
-  const { logPath, resultPath } = options.artifacts ?? prepareRun(options);
+  const { logPath, resultPath } =
+    "artifacts" in options ? options.artifacts : prepareRun(options);
 
   const args = [...options.args, "-resultBundlePath", resultPath];
   const started = Date.now();

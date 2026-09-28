@@ -21,8 +21,12 @@ import {
   simctl,
   type Simulator,
 } from "../simctl.js";
-import { artifactDir, pruneArtifacts, runMetadata } from "../xcodebuild.js";
-import { runStem } from "../bundles.js";
+import {
+  artifactDir,
+  claimStem,
+  pruneArtifacts,
+  runMetadata,
+} from "../xcodebuild.js";
 import { renderFields, renderHelp, renderOutput, tildePath } from "../toon.js";
 import { parseAppSettings } from "./settings.js";
 import { shellQuote } from "../redirect.js";
@@ -137,11 +141,18 @@ export async function runCommand(args: string[]): Promise<string> {
   const artifacts = hasFlag(args, "--no-build")
     ? undefined
     : prepareAction(context, "run");
-  const stem = artifacts?.stem ?? runStem(label);
   // The console stays in the cache, where the app can write, even when the
-  // build log went to --artifacts-dir -- so it is pruned there on its own.
+  // build log went to --artifacts-dir -- so it is claimed and pruned there on
+  // its own when the build did not already do both.
   const consoleDir = artifactDir(context.project);
-  if (artifacts?.dir !== consoleDir) pruneArtifacts(consoleDir, label);
+  let stem: string;
+  if (artifacts?.dir === consoleDir) {
+    stem = artifacts.stem;
+  } else {
+    mkdirSync(consoleDir, { recursive: true });
+    pruneArtifacts(consoleDir, label);
+    stem = claimStem(consoleDir, label, "-console.log");
+  }
 
   let build: Awaited<ReturnType<typeof runAction>> | undefined;
   if (artifacts) {
