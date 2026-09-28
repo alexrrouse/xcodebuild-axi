@@ -265,11 +265,27 @@ remove that fallback believing the bundle is always sufficient; it is not.
   "(Underlying Error: …)" wrappers of which only the innermost says anything;
   `values` still lists the bundle, which counted as one test until `tests`
   checked for errors first.
-- **`testIdentifierString` leaves out the test target.** A failure reads
-  `CheckoutTests/testFails()`, and `-only-testing` given that matches nothing:
-  the run exits non-zero with zero tests and no reason. The rerun hint joins
-  `targetName` on the front (`rerunIdentifier`), and a run of zero tests says
-  its filter matched nothing.
+- **`testIdentifierString` leaves out the test target**, and so does a tree
+  node's `nodeIdentifier`, which suites do not carry at all. A failure reads
+  `CheckoutTests/testFails()`, and `-only-testing` given that matches nothing.
+  Joining `targetName` on the front guesses wrong whenever a class is named
+  for its target: `MyAppUITests/testCheckout()` already starts with the
+  target's name, so it was left alone and the rerun hint printed a selector
+  that matched nothing. `testIdentifierURL` and `nodeIdentifierURL` spell every
+  level — `test://com.apple.xcode/<container>/<Target>/<Suite>/<test>` — and
+  `testIdentifierFromURL` is how any identifier gets derived. The old guess is
+  only a fallback for a bundle without URLs.
+- **`-only-testing` that matches nothing passes.** xcodebuild runs it as zero
+  tests, prints `** TEST SUCCEEDED **` and exits 0 — alone, or beside
+  selectors that did match, so one new suite not yet in its target vanished
+  from a run reported as passed. `test` reads the result bundle's tree and
+  fails the run for each `--only` no identifier in it matches (`testVerdict`),
+  and a run of zero tests is never a pass. Matching is as strict as
+  xcodebuild's, checked against it: exact, case-sensitive, no trailing slash,
+  and a Swift Testing test only with its parentheses (`total()`,
+  `discount(value:)`); an XCTest method is accepted with or without `()`.
+  `--skip` is not checked, since a test skipped by filter is absent from the
+  tree either way.
 
 ## Sharp edges in simctl
 
@@ -603,7 +619,9 @@ Details in `watchRun` that are easy to undo by accident:
 
 ## Exit codes
 
-`0` success, `1` the build or tests failed, `2` usage error. A failed build is
+`0` success, `1` the build or tests failed, `2` usage error. A test run in
+which nothing ran, or an `--only` matched nothing, is a failure too, whatever
+xcodebuild exited with. A failed build is
 not a tool error — the full report still goes to stdout — but the agent asked
 for a build and did not get one, so `&&` chains and CI must stop. The non-zero
 status is set on `process.exitCode` by the command, after the report is

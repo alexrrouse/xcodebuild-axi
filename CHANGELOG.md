@@ -31,6 +31,17 @@ attachments` with no bundle path copied in between. Reads only a test run can
 
 ### Fixed
 
+- **`test --only` no longer passes a selector that matched nothing.**
+  xcodebuild runs one as zero tests and exits 0, so a new suite not yet in its
+  target — alone, or beside selectors that did match — came back
+  `test: passed`. Each `--only` is now checked against what the result
+  bundle says ran, and one that matched nothing fails the run and is listed
+  as `unmatched`. A run of zero tests is never a pass, and keeps its
+  destination's platform. Closes #36.
+- **The rerun hint after a failure names a test that exists** when its class
+  shares its target's name (`MyAppUITests/MyAppUITests/testCheckout`, not
+  `MyAppUITests/testCheckout`), and keeps a Swift Testing test's parentheses,
+  quoted for the shell.
 - **Two runs of one scheme and device no longer share a log and result
   bundle.** A run that outlived its tests had its bundle deleted and its log
   truncated by the next run of the same pair, then reported that run's counts

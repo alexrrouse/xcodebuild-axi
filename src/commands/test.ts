@@ -10,13 +10,19 @@ import {
 } from "../action.js";
 import {
   readBuildResults,
+  readTests,
   readTestSummary,
+  testIdentifierFromURL,
   toDiagnostics,
+  treeIdentifiers,
   describeDevice,
   type BuildResults,
+  type TestDevice,
   type TestFailure,
   type TestSummary,
+  type TestTree,
 } from "../xcresult.js";
+import { shellQuote } from "../redirect.js";
 import { readCoverage, percent } from "../xccov.js";
 import {
   acquireDevice,
@@ -49,7 +55,7 @@ Runs a scheme's tests and reports the counts plus only the failures.
 flags[70]:
 ${BUILD_FLAG_HELP}
   --test-plan <name>     test plan to run
-  --only <id>            run only this test/class/target; repeatable or comma-separated
+  --only <id>            run only this Target/Class/method; repeatable or comma-separated; a miss fails
   --skip <id>            skip this test/class/target; repeatable or comma-separated
   --coverage             collect code coverage and report the overall percentage
   --without-building     test already-built products (test-without-building)
@@ -79,8 +85,8 @@ note:
   with DEVICE_BUSY and the other run's pid, rather than overwriting its
   installs; --wait queues behind it instead. build never locks.
 exit:
-  0 all tests passed, 1 a test or the build failed or the device is busy,
-  2 usage error
+  0 all tests passed, 1 a test or the build failed, no test ran, an --only
+  matched nothing, or the device is busy, 2 usage error
 examples:
   xcodebuild-axi test
   xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro"
@@ -194,11 +200,17 @@ export async function testCommand(args: string[]): Promise<string> {
   }
 
   const summary = await readTestSummary(run.resultPath).catch(() => undefined);
-  // Only worth the second xcresulttool call when the summary counted nothing.
-  const build =
+  const only = getListFlag(args, "--only");
+  // Only worth the extra xcresulttool calls when the summary counted nothing,
+  // or there are selectors to check against what ran.
+  const [build, tree] = await Promise.all([
     summary?.totalTestCount === 0
-      ? await readBuildResults(run.resultPath).catch(() => undefined)
-      : undefined;
+      ? readBuildResults(run.resultPath).catch(() => undefined)
+      : undefined,
+    summary && (only.length > 0 || summary.totalTestCount === 0)
+      ? readTests(run.resultPath).catch(() => undefined)
+      : undefined,
+  ]);
 
   if (!summary || testsNeverRan(summary, build)) {
     return renderTestsNeverRan(context, run);
@@ -207,6 +219,8 @@ export async function testCommand(args: string[]): Promise<string> {
   return renderTestSummary({
     context,
     summary,
+    tree,
+    only,
     run,
     maxFailures: getIntFlag(args, "--max-failures") ?? 20,
     full: context.full,
@@ -352,6 +366,9 @@ async function renderTestsNeverRan(
 interface RenderTestSummaryOptions {
   context: BuildContext;
   summary: TestSummary;
+  /** Read only when there are `--only` selectors to check, or nothing ran. */
+  tree: TestTree | undefined;
+  only: string[];
   run: BuildRun;
   maxFailures: number;
   full: boolean;
@@ -361,16 +378,23 @@ interface RenderTestSummaryOptions {
 async function renderTestSummary(
   options: RenderTestSummaryOptions,
 ): Promise<string> {
-  const { summary, run, context } = options;
+  const { summary, run, context, tree, only } = options;
   const failed = summary.failedTests ?? 0;
   const passed = summary.passedTests ?? 0;
   const skipped = summary.skippedTests ?? 0;
-  const succeeded = run.exitCode === 0 && failed === 0;
+  const identifiers = tree ? treeIdentifiers(tree) : undefined;
+  const verdict = testVerdict({
+    exitCode: run.exitCode,
+    summary,
+    only,
+    identifiers,
+  });
+  const { succeeded, unmatched } = verdict;
 
   // Report the destination the run actually landed on, not the one requested:
   // a name-based specifier can resolve to a different runtime than expected,
   // and a pass on the wrong OS is a pass the agent should not trust.
-  const device = summary.devicesAndConfigurations?.[0]?.device;
+  const device = landedDevice(summary, tree);
   const landed = device
     ? describeDevice(device)
     : (context.destination ?? "unknown");
@@ -382,11 +406,13 @@ async function renderTestSummary(
   const blocks: string[] = [
     renderFields({
       test: succeeded ? "passed" : "failed",
+      ...(verdict.reason ? { reason: verdict.reason } : {}),
       ...subjectField(context),
       destination: landed,
       // Slash-separated, not comma-separated: TOON quotes any scalar
       // containing a comma, and the quotes cost more than the commas saved.
       tests: `${passed} passed / ${failed} failed / ${skipped} skipped`,
+      ...(unmatched.length > 0 ? { unmatched } : {}),
       duration: duration(run.seconds),
       ...(coverageReport
         ? { coverage: percent(coverageReport.lineCoverage) }
@@ -423,19 +449,26 @@ async function renderTestSummary(
   );
 
   const hints: string[] = [];
-  // xcodebuild fails a run whose filters matched nothing, and says only that
-  // it failed. Name the cause, since "0 passed / 0 failed" reads like a crash.
-  if (passed + failed + skipped === 0) {
+  // xcodebuild runs a selector that matches nothing as zero tests, prints
+  // TEST SUCCEEDED and exits 0 -- so the verdict above is the only place that
+  // says so. The hint says how selectors are spelled, since a near miss is
+  // the usual cause.
+  if (unmatched.length > 0 || passed + failed + skipped === 0) {
     hints.push(
-      "No tests ran — an --only or --skip identifier matched nothing. They are spelled Target/Class/method",
+      "--only is exact and case-sensitive — Target/Class/method, and a Swift Testing test keeps its parentheses, e.g. MyAppTests/CheckoutSuite/total()",
       `Run \`xcodebuild-axi tests ${context.subject.rerun}\` for the identifiers this scheme has`,
+    );
+  }
+  if (only.length > 0 && identifiers === undefined) {
+    hints.push(
+      "The result bundle's test tree could not be read, so --only selectors were not checked against what ran",
     );
   }
   if (failures.length > 0) {
     const first = rerunIdentifier(failures[0]);
     if (first) {
       hints.push(
-        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${first}\` to re-run just this failure`,
+        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${shellQuote(first)}\` to re-run just this failure`,
       );
     }
     hints.push(
@@ -478,17 +511,91 @@ export function testsNeverRan(
 }
 
 /**
+ * Whether a test run did what it was asked, and if not, why.
+ *
+ * A zero exit and no failures is not enough. xcodebuild runs an
+ * `-only-testing` selector that matches nothing as zero tests, prints
+ * TEST SUCCEEDED and exits 0 -- alone, or beside selectors that did match --
+ * so a new suite not yet in its target, or a selector missing its class, came
+ * back as a pass. Every selector is checked against the identifiers the
+ * result bundle's tree says ran. With no tree to check, nothing is claimed
+ * missing: that would be a guess.
+ */
+export function testVerdict(input: {
+  exitCode: number;
+  summary: TestSummary;
+  only: string[];
+  identifiers: string[] | undefined;
+}): { succeeded: boolean; reason?: string; unmatched: string[] } {
+  const { summary, only, identifiers } = input;
+  const failed = summary.failedTests ?? 0;
+  const ran =
+    summary.totalTestCount ??
+    (summary.passedTests ?? 0) + failed + (summary.skippedTests ?? 0);
+  const unmatched =
+    only.length > 0 && identifiers ? unmatchedSelectors(only, identifiers) : [];
+  const succeeded =
+    input.exitCode === 0 && failed === 0 && ran > 0 && unmatched.length === 0;
+
+  // A reason only where the counts do not already explain the verdict: a
+  // failed test is its own reason, and `unmatched` still lists the misses.
+  const reason =
+    ran === 0
+      ? only.length > 0
+        ? "no --only selector matched a test"
+        : "no tests ran"
+      : unmatched.length > 0 && input.exitCode === 0 && failed === 0
+        ? `${unmatched.length} --only selector${unmatched.length === 1 ? "" : "s"} matched no test`
+        : undefined;
+  return { succeeded, ...(reason ? { reason } : {}), unmatched };
+}
+
+/**
+ * The `--only` selectors that match nothing a run's tree says ran, as typed.
+ *
+ * As strict as xcodebuild, checked against it: exact and case-sensitive, no
+ * trailing slash, and a Swift Testing test only with its parentheses. The one
+ * allowance is an XCTest method written with `()`, which xcodebuild accepts
+ * and the tree spells without.
+ */
+export function unmatchedSelectors(
+  selectors: string[],
+  identifiers: string[],
+): string[] {
+  const ran = new Set(identifiers);
+  return selectors.filter(
+    (selector) => !ran.has(selector) && !ran.has(selector.replace(/\(\)$/, "")),
+  );
+}
+
+/**
+ * The device a run landed on. A run of zero tests lists none in its summary,
+ * but its tree still does -- and without it the destination loses its
+ * platform.
+ */
+export function landedDevice(
+  summary: TestSummary,
+  tree: TestTree | undefined,
+): TestDevice | undefined {
+  return summary.devicesAndConfigurations?.[0]?.device ?? tree?.devices?.[0];
+}
+
+/**
  * The identifier `-only-testing` needs for one failure.
  *
+ * `testIdentifierURL` spells it whole (`testIdentifierFromURL`), including
+ * the parentheses a Swift Testing test needs. Without one, the older guess:
  * `testIdentifierString` omits the test target (`CheckoutTests/testFails()`),
- * and `-only-testing` without one matches nothing — the run then reports zero
- * tests and a failure with no reason. The target lives beside it in
- * `targetName`, so the two are joined here. The trailing `()` is dropped for
- * readability; xcodebuild accepts either spelling.
+ * so `targetName` is joined on the front -- unless the string already starts
+ * with it, which is also what a class named for its target looks like, and
+ * why the URL comes first. The trailing `()` is dropped for readability;
+ * XCTest accepts either spelling.
  */
 export function rerunIdentifier(
   failure: TestFailure | undefined,
 ): string | undefined {
+  const fromURL = testIdentifierFromURL(failure?.testIdentifierURL);
+  if (fromURL) return fromURL;
   const id = failure?.testIdentifierString?.replace(/\(\)$/, "");
   if (!id) return undefined;
   const target = failure?.targetName;

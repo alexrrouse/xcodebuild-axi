@@ -130,4 +130,30 @@ describe("rerunIdentifier", () => {
   it("gives nothing without an identifier", () => {
     expect(rerunIdentifier({ targetName: "MyAppTests" })).toBeUndefined();
   });
+
+  // The class is named for its target, so the identifier already starts with
+  // `MyAppUITests/` -- and taking that as the target printed a hint that
+  // matched nothing, which the next run then reported as a pass.
+  it("takes the target from the URL when a class shares its target's name", () => {
+    expect(
+      rerunIdentifier({
+        targetName: "MyAppUITests",
+        testIdentifierString: "MyAppUITests/testCheckout()",
+        testIdentifierURL:
+          "test://com.apple.xcode/MyApp/MyAppUITests/MyAppUITests/testCheckout",
+      }),
+    ).toBe("MyAppUITests/MyAppUITests/testCheckout");
+  });
+
+  // Swift Testing matches only with the parentheses, labels and all.
+  it("keeps a Swift Testing test's parentheses", () => {
+    expect(
+      rerunIdentifier({
+        targetName: "MyAppTests",
+        testIdentifierString: "CheckoutSuite/discount(value:)",
+        testIdentifierURL:
+          "test://com.apple.xcode/MyApp/MyAppTests/CheckoutSuite/discount(value:)",
+      }),
+    ).toBe("MyAppTests/CheckoutSuite/discount(value:)");
+  });
 });

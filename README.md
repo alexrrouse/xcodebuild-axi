@@ -348,7 +348,8 @@ npx skills add alexrrouse/xcodebuild-axi --skill xcodebuild-axi
   `code` and a `help[]` that names the command that fixes it.
 - **Exit codes**: `0` success, `1` the build or tests failed, `2` usage error.
   A failed build still prints its full report — the exit code is for your `&&`,
-  the report is for the agent.
+  the report is for the agent. A test run in which nothing ran, or an `--only`
+  matched no test, fails: xcodebuild calls both a success.
 - **Unknown flags fail loudly**, by name, with the nearest valid flag and the
   valid set listed inline. A silently dropped filter is worse than an error.
 - **A raw guess gets translated, not refused.** Type what you would have typed
