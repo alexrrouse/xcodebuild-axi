@@ -64,6 +64,9 @@ over guessing.
   (`result --export attachments` for its screenshots); pass a
   `<path.xcresult>` for any other.
 - Build settings: `settings --key NAME`, not a full dump.
+- `code: DEVICE_BUSY`: another run is testing on that simulator. Wait with
+  `--wait <secs>` or pick another `--device`; `--no-device-lock` only when
+  the holder it names is yours.
 
 ## Before dropping back to xcodebuild or simctl
 

@@ -7,6 +7,7 @@ import { destinationSlug, resolveDestination } from "./destination.js";
 import { runBuild, type BuildRun } from "./xcodebuild.js";
 import { readBuildResults, toDiagnostics } from "./xcresult.js";
 import { diagnosticsBlock, transcriptTail } from "./report.js";
+import { defaultDeps, heldUdids } from "./devicelock.js";
 import {
   duration,
   renderFields,
@@ -221,6 +222,13 @@ export interface BuildContext {
  */
 const COMPILE_ONLY = new Set(["build", "analyze", "archive", "clean"]);
 
+/**
+ * Commands that take the device lock. Choosing a default for one of them
+ * skips a simulator someone else holds: the booted one is otherwise the
+ * first pick, and it is booted because another run is using it.
+ */
+const LOCKING = new Set(["test", "run"]);
+
 export interface ResolveBuildContextOptions {
   args: string[];
   command: string;
@@ -261,6 +269,9 @@ export async function resolveBuildContext(
           ...(device !== undefined ? { device } : {}),
           ...(rawDestination !== undefined ? { raw: rawDestination } : {}),
           allowGeneric: COMPILE_ONLY.has(command),
+          ...(LOCKING.has(command) && !hasFlag(args, "--no-device-lock")
+            ? { avoid: heldUdids(defaultDeps()) }
+            : {}),
         })
       : undefined;
 

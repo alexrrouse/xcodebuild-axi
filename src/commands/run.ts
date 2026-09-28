@@ -24,6 +24,15 @@ import { artifactDir, runMetadata } from "../xcodebuild.js";
 import { renderFields, renderHelp, renderOutput, tildePath } from "../toon.js";
 import { parseAppSettings } from "./settings.js";
 import { shellQuote } from "../redirect.js";
+import {
+  acquireDevice,
+  checkDevice,
+  DEVICE_LOCK_FLAG_HELP,
+  DEVICE_LOCK_FLAGS,
+  DEVICE_LOCK_VALUE_FLAGS,
+  deviceLockOptions,
+  lockKey,
+} from "../devicelock.js";
 
 /**
  * `--target` and `--all-targets` build without a scheme, and a scheme is what
@@ -37,19 +46,23 @@ const RUN_BUILD_FLAG_HELP = BUILD_FLAG_HELP.split("\n")
 export const RUN_HELP = `usage: xcodebuild-axi run [flags]
 Builds a scheme, installs it on a simulator, and launches it — the loop from
 an edit to a running app, in one call. A Mac app is opened instead.
-flags[44]:
+flags[46]:
 ${RUN_BUILD_FLAG_HELP}
   --no-build              install and launch the last build without building again
   --env KEY=VALUE         environment variable for the app; repeatable
   --arg <value>           launch argument for the app; repeatable
+${DEVICE_LOCK_FLAG_HELP}
 note:
   The app's stdout and stderr go to the \`console\` path in the report, so
   print() output is a file away rather than lost. Os_log output is in the
   simulator's unified log: \`xcodebuild-axi sim logs\`.
   Code signing is off, as for \`build\`. Pass --sign if the app needs its
   entitlements at runtime (keychain sharing, app groups).
+  A simulator another run is testing on is refused with DEVICE_BUSY before
+  anything is built; the lock itself is held only to install and launch.
 exit:
-  0 launched, 1 the build, install or launch failed, 2 usage error
+  0 launched, 1 the build, install or launch failed or the device is busy,
+  2 usage error
 examples:
   xcodebuild-axi run
   xcodebuild-axi run --scheme MyApp --device "iPhone 17 Pro"
@@ -62,9 +75,15 @@ export const RUN_FLAGS = [
   "--no-build",
   "--env",
   "--arg",
+  ...DEVICE_LOCK_FLAGS,
 ] as const;
 
-const RUN_VALUE_FLAGS = [...SHARED_BUILD_VALUE_FLAGS, "--env", "--arg"];
+const RUN_VALUE_FLAGS = [
+  ...SHARED_BUILD_VALUE_FLAGS,
+  "--env",
+  "--arg",
+  ...DEVICE_LOCK_VALUE_FLAGS,
+];
 
 export async function runCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "run", RUN_FLAGS, RUN_VALUE_FLAGS);
@@ -82,8 +101,24 @@ export async function runCommand(args: string[]): Promise<string> {
   }
   const launchArgs = repeated(args, "--arg");
 
+  const lock = deviceLockOptions(args);
   const context = await resolveBuildContext({ args, command: "run" });
   const target = await targetOf(context);
+  const udid =
+    target.kind === "mac" ? undefined : lockKey(context.destinationSpecifier);
+  const meta = {
+    device: context.destination ?? udid ?? "the simulator",
+    command: "run",
+    scheme: context.scheme,
+    project: context.project.path,
+  };
+
+  // Refused before the build rather than after it, so a busy device costs a
+  // second instead of a build. Under --wait the build goes ahead, and the
+  // wait overlaps it rather than coming first.
+  if (udid && lock.waitSeconds === undefined) {
+    await checkDevice({ udid, meta, options: lock });
+  }
 
   let build: Awaited<ReturnType<typeof runAction>> | undefined;
   if (!hasFlag(args, "--no-build")) {
@@ -107,19 +142,29 @@ export async function runCommand(args: string[]): Promise<string> {
     ]);
   }
 
-  const launched =
-    target.kind === "mac"
-      ? await openMacApp(product.appPath, launchArgs)
-      : await launchOnSimulator(
-          target.simulator,
-          product,
-          env,
-          launchArgs,
-          join(
-            artifactDir(context.project),
-            `${runLabel(context, "run")}-console.log`,
-          ),
-        );
+  // Held only to install and launch: the build never touches the device, and
+  // the lock is for keeping two runs from replacing each other's installs.
+  const release = udid
+    ? await acquireDevice({ udid, meta, options: lock })
+    : () => {};
+  let launched: Awaited<ReturnType<typeof launchOnSimulator>>;
+  try {
+    launched =
+      target.kind === "mac"
+        ? await openMacApp(product.appPath, launchArgs)
+        : await launchOnSimulator(
+            target.simulator,
+            product,
+            env,
+            launchArgs,
+            join(
+              artifactDir(context.project),
+              `${runLabel(context, "run")}-console.log`,
+            ),
+          );
+  } finally {
+    release();
+  }
 
   const fields: Record<string, unknown> = {
     app: product.bundleId,

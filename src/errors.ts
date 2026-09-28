@@ -11,9 +11,25 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "BUILD_FAILED"
   | "TEST_FAILED"
+  | "DEVICE_BUSY"
   | "UNKNOWN";
 
 export { AxiError, exitCodeForError };
+
+/**
+ * A refusal that carries more than a sentence can say: who holds the device,
+ * for how long, and where the lock is. The fields render between `code` and
+ * `help[]`, so the refusal reads like any other answer.
+ */
+export class DeviceBusyError extends AxiError {
+  constructor(
+    message: string,
+    readonly details: Record<string, unknown>,
+    suggestions: string[],
+  ) {
+    super(message, "DEVICE_BUSY", suggestions);
+  }
+}
 
 /**
  * xcodebuild's own refusals, translated.

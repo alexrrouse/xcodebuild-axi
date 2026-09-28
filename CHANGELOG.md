@@ -14,9 +14,14 @@ Notable changes to `xcodebuild-axi`. Versions follow
   unchanged. `--verbose` and `--stream-console` point to it. Closes #11.
 - **A run still going after 30 seconds prints its log path on stderr**, so a
   hung run can be tailed while it hangs rather than only once it ends.
-
-### Added
-
+- **One run per simulator.** `test` and `run` hold a lock on the simulator
+  they install onto, and a second run aimed at the same one is refused with
+  `code: DEVICE_BUSY`, the holder's pid, command and scheme, and how long it
+  has held it — instead of both runs killing each other's app mid-test.
+  `--wait <secs>` queues behind the holder, `--no-device-lock` goes ahead
+  anyway, and a run that picks its own simulator steers around a busy one. A
+  raw `xcodebuild test` against the same udid is caught too. `sim` verbs that
+  disturb a running app check the lock without taking it. Closes #31.
 - **`result` with no path reads the last run in the current project**, so a
   UI probe is `test --only MyAppUITests/ProbeTests` then `result --export
 attachments` with no bundle path copied in between. Reads only a test run can

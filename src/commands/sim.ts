@@ -8,6 +8,14 @@ import { capturePath, runMetadata } from "../xcodebuild.js";
 import { parseAppSettings } from "./settings.js";
 import { simSubcommandRedirect } from "../redirect.js";
 import {
+  checkDevice,
+  defaultDeps,
+  DEVICE_LOCK_FLAGS,
+  DEVICE_LOCK_VALUE_FLAGS,
+  deviceLockOptions,
+  heldUdids,
+} from "../devicelock.js";
+import {
   findDeviceType,
   findSimulator,
   listApps,
@@ -73,7 +81,7 @@ subcommands[23]:
                        something there
   logs <name|udid> [bundle-id]     the app's own unified log lines, newest
                        last; --system for everything its process logged
-flags[17]:
+flags[19]:
   --runtime <name>     filter the list, e.g. "iOS 26.5"
   --booted             list only booted simulators
   --all                apply shutdown or erase to every eligible simulator
@@ -91,6 +99,8 @@ flags[17]:
   --speed <m/s>        with location: how fast to move between waypoints
   --last <duration>    with logs: how far back, e.g. 30s, 5m, 1h (default: 5m)
   --max <n>            with logs: lines to print, newest kept (default: 50)
+  --wait <secs>        if another run is testing on the device, wait up to this long for it
+  --no-device-lock     change the device even if another run is testing on it
 note:
   install, launch, terminate and uninstall take the app as a path or a bundle
   id, and work it out from the project in the current directory when it is
@@ -98,6 +108,9 @@ note:
   a DerivedData path is not something worth typing.
   <name|udid> can be left off, or written \`booted\`, when exactly one
   simulator is booted. boot, shutdown, erase and delete always need one.
+  install, uninstall, launch, terminate, privacy, shutdown, erase and delete
+  refuse with DEVICE_BUSY while another test or run holds the device: each
+  would replace or kill what that run is testing.
 examples:
   xcodebuild-axi sim
   xcodebuild-axi sim list --runtime "iOS 26.5"
@@ -136,8 +149,10 @@ export const SIM_FLAGS = [
   "--speed",
   "--last",
   "--max",
+  ...DEVICE_LOCK_FLAGS,
 ] as const;
 const VALUE_FLAGS = [
+  ...DEVICE_LOCK_VALUE_FLAGS,
   "--runtime",
   "--scheme",
   "--seconds",
@@ -156,6 +171,10 @@ export async function simCommand(args: string[]): Promise<string> {
 
   const words = positionals(args, VALUE_FLAGS);
   const [subcommand, target, app, extra] = words;
+
+  if (subcommand !== undefined && LOCK_CHECKED.has(subcommand)) {
+    await guardDevice(args, subcommand, target);
+  }
 
   switch (subcommand ?? "booted") {
     case "booted":
@@ -285,6 +304,56 @@ async function listAll(args: string[]): Promise<string> {
 }
 
 const EXPLICIT_ONLY = new Set(["boot", "shutdown", "erase", "delete"]);
+
+/**
+ * The verbs that would replace or kill what another run is testing: a
+ * reinstall swaps its app out, a terminate or a permission change (simctl
+ * kills the app to apply one) ends it, and a shutdown or erase takes the
+ * device away. Each checks the device lock without taking it -- holding one
+ * for a one-second simctl call would only make two quick commands refuse
+ * each other.
+ */
+const LOCK_CHECKED = new Set([
+  "install",
+  "uninstall",
+  "launch",
+  "terminate",
+  "privacy",
+  "shutdown",
+  "erase",
+  "delete",
+]);
+
+async function guardDevice(
+  args: string[],
+  verb: string,
+  target: string | undefined,
+): Promise<void> {
+  const options = deviceLockOptions(args);
+  if (options.skip || hasFlag(args, "--unavailable")) return;
+
+  if (hasFlag(args, "--all")) {
+    const simulators = await listSimulators();
+    for (const udid of heldUdids(defaultDeps())) {
+      const simulator = simulators.find(
+        (candidate) => candidate.udid.toUpperCase() === udid,
+      );
+      await checkDevice({
+        udid,
+        meta: { device: simulator?.name ?? udid, command: `sim ${verb}` },
+        options,
+      });
+    }
+    return;
+  }
+
+  const simulator = await resolveTarget(target, verb);
+  await checkDevice({
+    udid: simulator.udid.toUpperCase(),
+    meta: { device: simulator.name, command: `sim ${verb}` },
+    options,
+  });
+}
 
 async function resolveTarget(
   target: string | undefined,
