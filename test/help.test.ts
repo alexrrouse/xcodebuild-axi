@@ -92,3 +92,26 @@ describe("--live", () => {
     expect(COMMAND_HELP[command]).toMatch(/^ {2}--live /m);
   });
 });
+
+// Every command that can answer DEVICE_BUSY takes both ways out of it, and
+// nothing that only builds takes either: CI builds continuously, and a build
+// never touches the device.
+describe("device lock flags", () => {
+  it.each(["test", "run", "sim"])(
+    "are accepted and documented by `%s`",
+    (command) => {
+      for (const flag of ["--wait", "--no-device-lock"]) {
+        expect(COMMAND_FLAGS[command]).toContain(flag);
+        expect(COMMAND_HELP[command]).toMatch(new RegExp(`^ {2}${flag} `, "m"));
+      }
+    },
+  );
+
+  it.each(["build", "tests", "analyze", "archive", "clean"])(
+    "are not taken by `%s`",
+    (command) => {
+      expect(COMMAND_FLAGS[command]).not.toContain("--wait");
+      expect(COMMAND_FLAGS[command]).not.toContain("--no-device-lock");
+    },
+  );
+});

@@ -402,6 +402,66 @@ leaf, and gets no `surface.ts` entry. The help text's own `flags[N]:` count is c
 `test/help.test.ts`, so a forgotten count fails the suite rather than shipping
 a TOON array that lies about its length.
 
+## One run per simulator
+
+Two runs installing onto one simulator kill each other's app — the second
+`install` terminates the first run's test host mid-test, and both report the
+other's damage as a failure of their own. `src/devicelock.ts` owns the lock.
+Decisions that are not obvious from the code:
+
+- **The key is the udid, and only a pinned one.** `lockKey` takes it from the
+  resolved `id=`; a raw `--destination` naming only `name=` is not locked,
+  because which runtime's device it lands on is xcodebuild's guess. macOS and
+  generic placeholders lock nothing — a Mac is one shared machine, and a
+  placeholder runs nothing.
+- **Acquire is a hard link, not `O_EXCL` on the final name.** The record is
+  written in full to a private file and linked into place, so exactly one
+  racer wins and no reader sees half a lock. A stale lock is renamed aside and
+  put back if what was renamed is not what was judged stale.
+- **Staleness is pid plus start time.** A dead pid is stale; so is a live pid
+  whose `ps -o lstart=` differs from the one recorded, which is pid reuse. A
+  lock carrying only a `pid` — another tool's — is honoured while that pid
+  lives. A lock that cannot be read at all (a directory, another user's file)
+  is judged by its age like a half-written one, rather than failing every
+  run. There are no signal handlers: `process.once("exit")` removes the
+  lock, and a `kill -9` leaves one that the next run sees is stale.
+- **Raw xcodebuild is caught by a `ps -axww` scan**, after acquiring. Only a
+  `test`/`test-without-building` naming the udid counts — a build installs
+  nothing — and our own descendants are excluded. `/usr/bin/xcodebuild` is a
+  shim that execs the real binary as its child, so each contender shows up as
+  a pair; it is reported once, as the outer pid. Without `-ww` the command
+  line is truncated before the destination.
+- **`run` holds the lock only across install and launch**, since the build
+  touches no simulator, but checks it before building so a busy device is not
+  discovered after a two-minute compile. With `--wait` it skips the check and
+  queues at install instead.
+- **A default pick that loses a race picks again.** The default destination
+  skips held simulators, but two runs started together both see the same one
+  free. `resolveLockedContext` re-resolves the loser without it, once per
+  device, so it lands on a free simulator instead of being refused. A device
+  named with `--device` or `--destination`, or one `--wait` was asked to queue
+  for, is never swapped.
+- **`sim` verbs check without holding.** `install`, `launch`, `terminate`,
+  `erase` and the rest are one-shot and disturb a running app; `boot` does not
+  and is not checked. Holding for a single `simctl` call would only race. The
+  check runs inside each verb after its own validation, so a usage error is
+  still answered first and the simulator is resolved once. `--all` forms check
+  every device they would touch with a single `ps`; `erase --all` is not
+  checked, since simctl erases only shut-down devices and a device under test
+  is booted.
+- **`tests` takes no lock.** Its `-enumerate-tests` run passes the `test`
+  action, but its log shows no install, launch or boot — which is also why the
+  `ps` scan ignores an xcodebuild carrying `-enumerate-tests`.
+- **`XCODEBUILD_AXI_HELD_DEVICES`** is set while `test` holds a device, so an
+  `xcodebuild-axi` call from a scheme's pre-action sees the lock as its own
+  run's. That has to skip the `ps` scan as well as the lock file — the parent's
+  xcodebuild is testing on that udid and is not our descendant — and has to
+  keep the default pick from steering away from it.
+- **The lock does not cover every contention.** The issue that asked for it
+  also reported `settings --for-index` and `packages --resolve` colliding with
+  a test run; neither touches a simulator, so no device lock would have
+  stopped them.
+
 ## `migrate` is the one command that edits tracked files
 
 Everything else here writes only to `~/Library/Caches`. `migrate --format`
@@ -438,6 +498,10 @@ the repository: running this tool must not dirty a working tree or require a
 `.gitignore` entry. The hash keys on the absolute project path so two checkouts
 of the same repo do not collide. Both `build` and `test` print the absolute log
 and bundle paths, so nothing is hidden by being out of the way.
+
+`device-locks/` beside those directories is state, not an artifact: one file
+per simulator currently in use, shared across every project on the machine
+because the simulators are.
 
 `result` with no path reads the newest bundle in that directory, and the home
 view reports on the same one; both go through `src/bundles.ts`. Recency is the

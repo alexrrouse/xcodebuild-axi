@@ -1,7 +1,7 @@
 import { AxiError, mapXcodebuildError } from "../errors.js";
 import {
   BUILD_FLAG_HELP,
-  resolveBuildContext,
+  resolveLockedContext,
   runAction,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
@@ -18,6 +18,14 @@ import {
   type TestSummary,
 } from "../xcresult.js";
 import { readCoverage, percent } from "../xccov.js";
+import {
+  acquireDevice,
+  DEVICE_LOCK_FLAG_HELP,
+  DEVICE_LOCK_FLAGS,
+  DEVICE_LOCK_VALUE_FLAGS,
+  deviceLockOptions,
+  lockKey,
+} from "../devicelock.js";
 import { diagnosticsBlock, failureRows, transcriptTail } from "../report.js";
 import type { BuildRun } from "../xcodebuild.js";
 import {
@@ -38,7 +46,7 @@ import {
 
 export const TEST_HELP = `usage: xcodebuild-axi test [flags]
 Runs a scheme's tests and reports the counts plus only the failures.
-flags[68]:
+flags[70]:
 ${BUILD_FLAG_HELP}
   --test-plan <name>     test plan to run
   --only <id>            run only this test/class/target; repeatable or comma-separated
@@ -65,8 +73,14 @@ ${BUILD_FLAG_HELP}
   --test-products <path>  where to find the built test products
   --test-timeout <secs>  per-test execution allowance (default: 300, 0 disables)
   --max-failures <n>     failures to list before summarizing the rest (default: 20)
+${DEVICE_LOCK_FLAG_HELP}
+note:
+  The simulator is locked for the run. A second test or run on it is refused
+  with DEVICE_BUSY and the other run's pid, rather than overwriting its
+  installs; --wait queues behind it instead. build never locks.
 exit:
-  0 all tests passed, 1 a test or the build failed, 2 usage error
+  0 all tests passed, 1 a test or the build failed or the device is busy,
+  2 usage error
 examples:
   xcodebuild-axi test
   xcodebuild-axi test --scheme MyApp --device "iPhone 17 Pro"
@@ -76,6 +90,7 @@ examples:
 
 export const TEST_FLAGS = [
   ...SHARED_BUILD_FLAGS,
+  ...DEVICE_LOCK_FLAGS,
   "--test-plan",
   "--only",
   "--skip",
@@ -105,6 +120,7 @@ export const TEST_FLAGS = [
 
 const VALUE_FLAGS = [
   ...SHARED_BUILD_VALUE_FLAGS,
+  ...DEVICE_LOCK_VALUE_FLAGS,
   "--test-plan",
   "--only",
   "--skip",
@@ -141,15 +157,41 @@ export async function testCommand(args: string[]): Promise<string> {
   const withoutBuilding =
     hasFlag(args, "--without-building") ||
     getFlag(args, "--xctestrun") !== undefined;
-  const context = await resolveBuildContext({ args, command: "test" });
+  const lock = deviceLockOptions(args);
   const coverage = hasFlag(args, "--coverage");
 
-  const run = await runAction({
-    context,
-    command: "test",
-    actions: [withoutBuilding ? "test-without-building" : "test"],
-    extraArgs: testArgs(args, coverage),
-  });
+  // Held from before xcodebuild starts until it exits: the build half does
+  // not touch the device, but the install that follows it does, and xcodebuild
+  // offers no point in between to take the lock at.
+  const { context, claimed: release } = await resolveLockedContext(
+    { args, command: "test", lock },
+    async (context) => {
+      const udid = lockKey(context.destinationSpecifier);
+      if (!udid) return () => {};
+      return acquireDevice({
+        udid,
+        meta: {
+          device: context.destination ?? udid,
+          command: "test",
+          scheme: context.scheme,
+          project: context.project.path,
+        },
+        options: lock,
+      });
+    },
+  );
+
+  let run: BuildRun;
+  try {
+    run = await runAction({
+      context,
+      command: "test",
+      actions: [withoutBuilding ? "test-without-building" : "test"],
+      extraArgs: testArgs(args, coverage),
+    });
+  } finally {
+    release();
+  }
 
   const summary = await readTestSummary(run.resultPath).catch(() => undefined);
   // Only worth the second xcresulttool call when the summary counted nothing.

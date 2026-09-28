@@ -1,12 +1,18 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { AxiError, mapXcodebuildError } from "./errors.js";
+import { AxiError, DeviceBusyError, mapXcodebuildError } from "./errors.js";
 import { requireProject, type ProjectContext } from "./context.js";
 import { resolveSubject, type Subject } from "./scheme.js";
 import { destinationSlug, resolveDestination } from "./destination.js";
 import { runBuild, type BuildRun } from "./xcodebuild.js";
 import { readBuildResults, toDiagnostics } from "./xcresult.js";
 import { diagnosticsBlock, transcriptTail } from "./report.js";
+import {
+  defaultDeps,
+  heldUdids,
+  lockKey,
+  type DeviceLockOptions,
+} from "./devicelock.js";
 import {
   duration,
   renderFields,
@@ -226,6 +232,8 @@ export interface ResolveBuildContextOptions {
   command: string;
   /** Skip destination resolution — `clean` does not need one, and it costs a subprocess. */
   needsDestination?: boolean;
+  /** Udids a default destination steers around: devices another run holds. */
+  avoid?: Set<string>;
 }
 
 export async function resolveBuildContext(
@@ -261,6 +269,7 @@ export async function resolveBuildContext(
           ...(device !== undefined ? { device } : {}),
           ...(rawDestination !== undefined ? { raw: rawDestination } : {}),
           allowGeneric: COMPILE_ONLY.has(command),
+          ...(options.avoid ? { avoid: options.avoid } : {}),
         })
       : undefined;
 
@@ -349,6 +358,52 @@ export async function resolveBuildContext(
     artifactsDir: artifactsDirFrom(args),
     live: hasFlag(args, "--live"),
   };
+}
+
+/**
+ * `resolveBuildContext` for a command that locks its device, followed by
+ * `claim`, which takes or checks the lock and throws `DeviceBusyError` when
+ * it cannot.
+ *
+ * A default choice skips simulators another run holds, but two runs started
+ * together both see the same one free and only one of them gets it. The
+ * other picks again without it rather than being refused while another
+ * simulator is free. A device the caller named is not swapped for another,
+ * and neither is one `--wait` was asked to queue for.
+ */
+export async function resolveLockedContext<T>(
+  options: ResolveBuildContextOptions & { lock: DeviceLockOptions },
+  claim: (context: BuildContext) => Promise<T>,
+  resolveContext: (
+    options: ResolveBuildContextOptions,
+  ) => Promise<BuildContext> = resolveBuildContext,
+  held: () => Set<string> = () => heldUdids(defaultDeps()),
+): Promise<{ context: BuildContext; claimed: T }> {
+  const { lock, ...rest } = options;
+  const named =
+    getFlag(rest.args, "--device") !== undefined ||
+    getFlag(rest.args, "--destination") !== undefined;
+  const avoid = lock.skip ? new Set<string>() : held();
+
+  for (;;) {
+    const context = await resolveContext({ ...rest, avoid });
+    try {
+      return { context, claimed: await claim(context) };
+    } catch (error) {
+      const udid = lockKey(context.destinationSpecifier);
+      // Already avoided means every candidate is held: the refusal stands.
+      if (
+        !(error instanceof DeviceBusyError) ||
+        named ||
+        lock.waitSeconds !== undefined ||
+        udid === undefined ||
+        avoid.has(udid)
+      ) {
+        throw error;
+      }
+      avoid.add(udid);
+    }
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   parseDestinationAnswer,
   incompatibleHelp,
   pickDefault,
+  preferFree,
   type Destination,
 } from "../src/destination.js";
 
@@ -339,5 +340,32 @@ describe("incompatibleHelp", () => {
     );
     expect(help[0]).toContain("iPhone 17 Pro’s");
     expect(help[1]).toContain("xcodebuild-axi platforms download iOS");
+  });
+});
+
+// The booted simulator is the default pick, and when another run holds it,
+// it is booted precisely because that run is using it.
+describe("preferFree", () => {
+  const sim = (id: string): Destination => ({
+    platform: "iOS Simulator",
+    name: "iPhone 17 Pro",
+    os: "26.5",
+    id,
+    arch: "arm64",
+    variant: "",
+    eligible: true,
+  });
+
+  it("steps around a device another run holds", () => {
+    expect(
+      preferFree([sim("aaaa-1"), sim("bbbb-2")], new Set(["AAAA-1"])).map(
+        (d) => d.id,
+      ),
+    ).toEqual(["bbbb-2"]);
+  });
+
+  // Then the lock refuses naming the holder, which is the useful answer.
+  it("keeps every device when all of them are held", () => {
+    expect(preferFree([sim("aaaa-1")], new Set(["AAAA-1"]))).toHaveLength(1);
   });
 });

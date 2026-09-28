@@ -234,6 +234,44 @@ routinely publish the same device name and a name-based specifier silently
 picks whichever xcodebuild sees first. The reported destination is the one the
 run actually landed on, read back out of the result bundle.
 
+### One run per simulator
+
+Two runs installing onto the same simulator kill each other's app mid-test,
+and each reports the other's damage as its own failure. So `test` and `run`
+hold a lock on the simulator they install onto, and a second run aimed at the
+same one is refused before it builds anything:
+
+```
+error: iPhone 17 Pro · 26.5 is in use by another run
+code: DEVICE_BUSY
+udid: 6F1E2D3C-8A9B-4C5D-9E0F-1A2B3C4D5E6F
+holder:
+  pid: 48213
+  command: test
+  scheme: MyApp
+  project: ~/src/MyApps.xcworkspace
+  held: 3m12s
+lock: ~/Library/Caches/xcodebuild-axi/device-locks/6F1E2D3C-8A9B-4C5D-9E0F-1A2B3C4D5E6F.json
+help[3]:
+  Add `--wait 900` to wait up to 15 minutes for it
+  Pass `--device <name>` for another simulator
+  `--no-device-lock` goes ahead anyway, and the two runs will overwrite each other's installs
+```
+
+`--wait <secs>` queues behind the holder instead, printing one `waiting:` line
+on stderr. A run that picks its own simulator steers around a busy one rather
+than queueing for it — including two runs started at the same moment, where
+the one that loses the race picks again. A raw `xcodebuild … test` against
+the same udid is noticed too, and named as such. `build` never locks — it
+installs nothing — and the `sim` verbs that would disturb a running app (`install`, `launch`,
+`terminate`, `erase`, …) check the lock without taking it.
+
+The lock is a file, so other tools can take part:
+`~/Library/Caches/xcodebuild-axi/device-locks/<UDID>.json`. The device is busy
+while that file exists and the process named by its `pid` is alive. Create it
+atomically (write elsewhere, then link or rename into place) with at least
+`pid` and `started` (ISO 8601), and remove it when done.
+
 ### Seeing the app
 
 `run` is the loop from a change to a running app: it builds, boots the

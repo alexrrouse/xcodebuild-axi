@@ -230,6 +230,11 @@ export interface ResolveDestinationOptions {
    * to run something, which needs a real device to run it on.
    */
   allowGeneric?: boolean;
+  /**
+   * Udids another run holds. Only the default choice steers around them; a
+   * device named with `--device` is still used, and refused if it is busy.
+   */
+  avoid?: Set<string>;
 }
 
 /**
@@ -339,10 +344,25 @@ export async function resolveDestination(
 
   // A simulator that is already booted is the one the agent is looking at —
   // its screenshots, its installed app — and skips a boot besides.
+  const free = preferFree(runnable, options.avoid);
   const booted = await bootedUdids();
-  const warm = runnable.filter((d) => booted.has(d.id));
-  const preferred = pickDefault(warm.length > 0 ? warm : runnable);
+  const warm = free.filter((d) => booted.has(d.id));
+  const preferred = pickDefault(warm.length > 0 ? warm : free);
   return { specifier: specifierFor(preferred), described: describe(preferred) };
+}
+
+/**
+ * The destinations nobody else is using, or all of them when every one is
+ * held -- then the choice is refused by the lock, naming the holder, rather
+ * than here with nothing to say about why.
+ */
+export function preferFree(
+  destinations: Destination[],
+  avoid: Set<string> | undefined,
+): Destination[] {
+  if (!avoid || avoid.size === 0) return destinations;
+  const free = destinations.filter((d) => !avoid.has(d.id.toUpperCase()));
+  return free.length > 0 ? free : destinations;
 }
 
 /** Udids of the booted simulators; empty when simctl cannot say. */

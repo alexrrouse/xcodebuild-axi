@@ -1,6 +1,6 @@
 import { encode } from "@toon-format/toon";
 import { runAxiCli } from "axi-sdk-js";
-import { AxiError, exitCodeForError } from "./errors.js";
+import { AxiError, DeviceBusyError, exitCodeForError } from "./errors.js";
 import { redirectArgv } from "./redirect.js";
 import { VERSION } from "./version.js";
 import { homeCommand } from "./commands/home.js";
@@ -210,7 +210,13 @@ export function formatCliError(error: unknown): {
           "UNKNOWN",
         );
 
-  const blocks = [encode({ error: axiError.message, code: axiError.code })];
+  const blocks = [
+    encode({
+      error: axiError.message,
+      code: axiError.code,
+      ...(axiError instanceof DeviceBusyError ? axiError.details : {}),
+    }),
+  ];
   if (axiError.suggestions.length > 0) {
     blocks.push(
       `help[${axiError.suggestions.length}]:\n${axiError.suggestions.map((line) => `  ${line}`).join("\n")}`,
