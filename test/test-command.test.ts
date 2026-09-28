@@ -80,6 +80,25 @@ describe("testsNeverRan", () => {
     ).toBe(true);
   });
 
+  // A bundle whose only rows restate the failure is still a build that
+  // failed: xcodebuild says so in as many words.
+  it("is true when the bundle says only that testing was cancelled", () => {
+    expect(
+      testsNeverRan(
+        { totalTestCount: 0 },
+        {
+          errors: [
+            {
+              issueType: "Uncategorized",
+              message: "Testing cancelled because the build failed.",
+            },
+            { message: "xcodebuild encountered an error (65)" },
+          ],
+        },
+      ),
+    ).toBe(true);
+  });
+
   // The case the zero-count hint exists for: the filter matched nothing and
   // everything compiled, so the summary is the right report.
   it("is false when zero tests ran and nothing failed to compile", () => {

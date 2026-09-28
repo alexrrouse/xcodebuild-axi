@@ -6,6 +6,7 @@ import {
   toDiagnostics,
   describeDevice,
   buildErrorCount,
+  isRestatement,
   meaningfulErrors,
 } from "../src/xcresult.js";
 
@@ -248,8 +249,22 @@ describe("meaningfulErrors", () => {
 
   it("counts only errors that say something", () => {
     expect(buildErrorCount({ errors: [CANCELLED, CAUSE] })).toBe(1);
-    expect(buildErrorCount({ errors: [CANCELLED] })).toBe(1);
+    expect(buildErrorCount({ errors: [CANCELLED] })).toBe(0);
     expect(buildErrorCount({ errors: [GENERIC] })).toBe(0);
     expect(buildErrorCount({ errorCount: 3 })).toBe(3);
+  });
+});
+
+describe("isRestatement", () => {
+  it("is true only for rows that say something failed but not why", () => {
+    expect(
+      isRestatement({ message: "Testing cancelled because the build failed." }),
+    ).toBe(true);
+    expect(
+      isRestatement({ message: "xcodebuild encountered an error (65)" }),
+    ).toBe(true);
+    expect(isRestatement({ message: "Cannot find 'total' in scope" })).toBe(
+      false,
+    );
   });
 });

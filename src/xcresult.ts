@@ -451,35 +451,36 @@ export function isGenericFailure(diagnostic: { message?: string }): boolean {
  * restates the failure, and it comes first, so on its own it pushed the cause
  * down the list -- behind a `--max-errors` cut, or out of a glance.
  */
-function isTestingCancelled(issue: { message?: string }): boolean {
+export function isTestingCancelled(issue: { message?: string }): boolean {
   return /^Testing cancelled because the build failed\.?$/.test(
     (issue.message ?? "").trim(),
   );
 }
 
 /**
- * A bundle's errors, without the rows that say only that something failed
- * when there is a cause to show instead: the generic exit-code row, and the
- * "Testing cancelled" restatement. With no cause they all stay, so a failed
- * bundle never reads as having nothing to say.
+ * A row that says only that something failed, not why: the generic exit-code
+ * row, or the "Testing cancelled" restatement. A bundle holding nothing else
+ * has no diagnosis in it, and the transcript is the only witness.
  */
-export function meaningfulErrors(issues: RawIssue[] | undefined): RawIssue[] {
-  const all = issues ?? [];
-  const causes = all.filter(
-    (issue) => !isGenericFailure(issue) && !isTestingCancelled(issue),
-  );
-  return causes.length > 0 ? causes : all;
+export function isRestatement(issue: { message?: string }): boolean {
+  return isGenericFailure(issue) || isTestingCancelled(issue);
 }
 
 /**
- * How many errors a build bundle has that say something. The generic
- * exit-code row never counts; a lone "Testing cancelled" row does, since it
- * at least says the build under the tests failed.
+ * A bundle's errors without the restatements, when there is a cause to show
+ * instead. With no cause they stay, so a failed bundle never reads as having
+ * nothing to say.
  */
+export function meaningfulErrors(issues: RawIssue[] | undefined): RawIssue[] {
+  const all = issues ?? [];
+  const causes = all.filter((issue) => !isRestatement(issue));
+  return causes.length > 0 ? causes : all;
+}
+
+/** How many errors a build bundle has that say why it failed. */
 export function buildErrorCount(build: BuildResults): number {
   return build.errors
-    ? meaningfulErrors(build.errors).filter((issue) => !isGenericFailure(issue))
-        .length
+    ? build.errors.filter((issue) => !isRestatement(issue)).length
     : (build.errorCount ?? 0);
 }
 

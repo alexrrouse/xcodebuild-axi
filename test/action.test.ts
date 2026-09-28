@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   artifactsDirFrom,
   buildPassthroughArgs,
-  databaseLockHint,
+  buildFailureHints,
 } from "../src/action.js";
 import { AxiError } from "../src/errors.js";
 import { buildCommand } from "../src/commands/build.js";
@@ -96,22 +96,55 @@ describe("build --install-src", () => {
   });
 });
 
-describe("databaseLockHint", () => {
+const LOCKED =
+  'unable to attach DB: error: accessing build database "/tmp/dd/Build/Intermediates.noindex/XCBuildData/build.db": database is locked Possibly there are two concurrent builds running in the same filesystem location.';
+
+describe("buildFailureHints", () => {
+  // Issue #38: xcodebuild guesses at a concurrent build and stops there.
   it("points a locked build database at a DerivedData of its own", () => {
     expect(
-      databaseLockHint([
-        {
-          message:
-            'unable to attach DB: error: accessing build database "/tmp/dd/Build/Intermediates.noindex/XCBuildData/build.db": database is locked Possibly there are two concurrent builds running in the same filesystem location.',
-        },
-      ]),
-    ).toMatch(/--derived-data/);
+      buildFailureHints({
+        command: "test",
+        errors: [{ message: LOCKED }],
+        hidden: 0,
+        tail: "",
+      }),
+    ).toEqual([expect.stringMatching(/--derived-data <path>/)]);
+  });
+
+  // The bundle can carry only a restatement, with the cause in the log.
+  it("finds the lock in the transcript when the bundle does not have it", () => {
+    expect(
+      buildFailureHints({
+        command: "build",
+        errors: [{ message: "xcodebuild encountered an error (65)" }],
+        hidden: 0,
+        tail: `Testing failed:\n\t${LOCKED}\n** TEST FAILED **`,
+      }),
+    ).toEqual([expect.stringMatching(/--derived-data/)]);
+  });
+
+  it("says how to see the errors the cap hid", () => {
+    expect(
+      buildFailureHints({
+        command: "test",
+        errors: [{ message: "a" }, { message: "b" }],
+        hidden: 1,
+        tail: "",
+      }),
+    ).toEqual([
+      "Run `xcodebuild-axi test --max-errors 2` to list all 2 errors",
+    ]);
   });
 
   it("says nothing about any other failure", () => {
     expect(
-      databaseLockHint([{ message: "Cannot find 'total' in scope" }]),
-    ).toBeUndefined();
-    expect(databaseLockHint([])).toBeUndefined();
+      buildFailureHints({
+        command: "build",
+        errors: [{ message: "Cannot find 'total' in scope" }],
+        hidden: 0,
+        tail: "** BUILD FAILED **",
+      }),
+    ).toEqual([]);
   });
 });

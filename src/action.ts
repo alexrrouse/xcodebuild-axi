@@ -11,7 +11,7 @@ import {
   type RunArtifacts,
 } from "./xcodebuild.js";
 import {
-  isGenericFailure,
+  isRestatement,
   meaningfulErrors,
   readBuildResults,
   toDiagnostics,
@@ -505,16 +505,41 @@ export interface ReportActionOptions {
 /**
  * What to do about a build database another build holds. xcodebuild's own
  * message guesses at the cause ("Possibly there are two concurrent builds")
- * and stops there; the way out is a DerivedData of this run's own.
+ * and stops there; the way out is a DerivedData of this run's own. Checked
+ * against the transcript too, since a bundle may carry only a restatement.
  */
-export function databaseLockHint(
-  errors: { message: string }[],
-): string | undefined {
-  return errors.some((error) =>
-    /accessing build database .* database is locked/.test(error.message),
+export function databaseLockHint(texts: string[]): string | undefined {
+  return texts.some((text) =>
+    /accessing build database .* database is locked/.test(text),
   )
     ? "Another build is using this DerivedData — wait for it to finish, or pass `--derived-data <path>` to build somewhere else"
     : undefined;
+}
+
+/**
+ * The hints every failed build report ends with, `build`'s and a test run's
+ * alike: how to see errors the cap hid, and what to do about a locked build
+ * database.
+ */
+export function buildFailureHints(options: {
+  command: string;
+  errors: { message: string }[];
+  hidden: number;
+  tail: string;
+}): string[] {
+  const { command, errors, hidden, tail } = options;
+  const hints: string[] = [];
+  if (hidden > 0) {
+    hints.push(
+      `Run \`xcodebuild-axi ${command} --max-errors ${errors.length}\` to list all ${errors.length} errors`,
+    );
+  }
+  const lockHint = databaseLockHint([
+    ...errors.map((error) => error.message),
+    tail,
+  ]);
+  if (lockHint) hints.push(lockHint);
+  return hints;
 }
 
 /**
@@ -540,7 +565,7 @@ export async function reportAction(
   // A bundle that records no *usable* error for a nonzero exit means xcodebuild
   // died before it built anything — a bad scheme, an unmatched destination, a
   // missing signing team. The transcript is the only witness.
-  const unexplained = errors.length === 0 || errors.every(isGenericFailure);
+  const unexplained = errors.every(isRestatement);
   if (!succeeded && unexplained) {
     const mapped = mapXcodebuildError(run.tail);
     if (mapped) {
@@ -603,9 +628,14 @@ export async function reportAction(
   );
 
   const hints: string[] = succeeded ? [...(options.help ?? [])] : [];
-  if (errorBlock.hidden > 0) {
+  if (!succeeded || errorBlock.hidden > 0) {
     hints.push(
-      `Run \`xcodebuild-axi ${options.command} --max-errors ${errors.length}\` to list all ${errors.length} errors`,
+      ...buildFailureHints({
+        command: options.command,
+        errors,
+        hidden: errorBlock.hidden,
+        tail: succeeded ? "" : run.tail,
+      }),
     );
   }
   if (!context.full && warnings.length > 10) {
@@ -618,8 +648,6 @@ export async function reportAction(
       `Run \`xcodebuild-axi result ${tildePath(run.resultPath)}\` to re-read this run without rebuilding`,
     );
   }
-  const lockHint = databaseLockHint(errors);
-  if (lockHint) hints.push(lockHint);
   blocks.push(renderHelp(hints));
 
   // The agent asked for a build and did not get one. Exit non-zero so `&&`
