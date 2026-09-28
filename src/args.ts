@@ -134,7 +134,7 @@ export function rejectUnknownFlags(
     if (bare === "--help") continue;
 
     if (!known.includes(bare)) {
-      const renamed = RENAMED_FLAGS[bare];
+      const renamed = renamedFlag(bare, known);
       const xcodebuild = bare.startsWith("--")
         ? undefined
         : xcodebuildFlagHint(command.split(" ")[0] as string, args);
@@ -172,3 +172,22 @@ const RENAMED_FLAGS: Record<string, string> = {
   "--verbose":
     "--verbose was removed; the full transcript is always written to the log path in the output",
 };
+
+/**
+ * `--verbose` is what a test script's "stream xcodebuild, don't just log it"
+ * flag is usually called, and `--stream-console` is how it was first asked
+ * for. Where the command can stream, both are answered with `--live` rather
+ * than with the log path -- which arrives when the run ends, and a hung run
+ * does not end.
+ */
+const LIVE_SPELLINGS = ["--verbose", "--stream-console"];
+
+function renamedFlag(
+  bare: string,
+  known: readonly string[],
+): string | undefined {
+  if (LIVE_SPELLINGS.includes(bare) && known.includes("--live")) {
+    return `to watch the run, ${bare} is spelled --live here — it streams the transcript to stderr and still writes the log. For more detail in the log itself, --log-level verbose`;
+  }
+  return RENAMED_FLAGS[bare];
+}

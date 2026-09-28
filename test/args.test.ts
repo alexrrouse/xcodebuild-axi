@@ -107,6 +107,31 @@ describe("rejectUnknownFlags", () => {
     }
   });
 
+  // A test script's "stream xcodebuild" flag is usually --verbose. The old
+  // answer pointed at the log path, which a hung run never prints.
+  it("answers --verbose and --stream-console with --live where it exists", () => {
+    for (const guess of ["--verbose", "--stream-console"]) {
+      try {
+        rejectUnknownFlags([guess], "test", ["--live"]);
+        expect.unreachable("should have thrown");
+      } catch (error) {
+        const hint = (error as AxiError).suggestions[0];
+        expect(hint).toContain(`${guess} is spelled --live here`);
+        // -verbose in xcodebuild means log verbosity, which is its own flag.
+        expect(hint).toContain("--log-level verbose");
+      }
+    }
+  });
+
+  it("does not offer --live to a command without it", () => {
+    try {
+      rejectUnknownFlags(["--verbose"], "settings", ["--key"]);
+      expect.unreachable("should have thrown");
+    } catch (error) {
+      expect((error as AxiError).suggestions[0]).not.toContain("--live");
+    }
+  });
+
   it("rejects a value flag given no value", () => {
     expect(() =>
       rejectUnknownFlags(["--scheme"], "build", ["--scheme"], ["--scheme"]),

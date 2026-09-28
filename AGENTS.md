@@ -396,7 +396,9 @@ classify whatever it added, and bump `AUTHORED_AGAINST`. Until then the map
 stays authoritative for the version it was actually read from.
 
 Adding a flag therefore means three edits: the command, `src/surface.ts`, and
-`npm run coverage`. The help text's own `flags[N]:` count is checked by
+`npm run coverage`. A flag with no xcodebuild counterpart — `--full`,
+`--max-errors`, `--live` — is how this tool shapes its own output, maps to no
+leaf, and gets no `surface.ts` entry. The help text's own `flags[N]:` count is checked by
 `test/help.test.ts`, so a forgotten count fails the suite rather than shipping
 a TOON array that lies about its length.
 
@@ -450,6 +452,47 @@ the default by design — it is not in the directory, and the refusal says so.
 of the same scheme and device reuses, so `result` clears it before writing. A
 second probe run otherwise exported beside the first one's screenshots and
 counted them as its own.
+
+## stdout is the answer; stderr is for watching
+
+A run that hangs never prints its report, and the report was the only place
+the log path appeared — so a wedged test run was opaque for as long as it
+hung (one real case: 83 minutes of silence until a CI cap killed it). Two
+things answer that, both in `runBuild`, both on stderr:
+
+- **The log path, once a run has gone 30 seconds** (`ANNOUNCE_AFTER_MS`).
+  Not up front: it is ~30 tokens against a ~90-token passing report, on every
+  quick incremental build in an agent's inner loop, and a run that finishes
+  in under 30 seconds never needed a tail. Not TTY-gated either: agents never
+  have a TTY, and they are who the line is for.
+- **The transcript itself, under `--live`**, on every command that writes a
+  log. It is a firehose — hundreds of KB for one test run — so it is for a
+  background run or a human watching, never the foreground default.
+
+stderr rather than the stdout the issue asked for, because stdout staying
+byte-identical with and without `--live` is what keeps `$(…)` and a TOON
+parser working; every agent shell and CI log captures both. Under `2>&1` a
+long run shows `log:` twice, which is harmless.
+
+Details in `watchRun` that are easy to undo by accident:
+
+- **The tee ignores backpressure, but not without limit.** Piping into a slow
+  stderr reader pauses the child's stdout, and xcodebuild then blocks on its
+  own writes: watching the run would stall it. So chunks are queued instead,
+  up to 8 MB (`PROGRESS_BACKLOG_BYTES`), and past that dropped with a line
+  saying how many bytes were skipped — a hung run that loops on output would
+  otherwise grow the process for as long as it hangs. The log misses nothing.
+- **Chunks are passed on as bytes, never decoded.** A pipe read can end inside
+  a multibyte character, and Swift diagnostics are full of curly quotes.
+- **A failed stderr is stopped writing to, not thrown.** The SDK handles EPIPE
+  on stdout only; `2>&1 | head` closing the reader would otherwise kill the
+  process before the report. The listener that catches it stays attached
+  while any write is still queued, including after the drain cap gives up.
+- **`log:` is announced on `spawn`, not before.** A binary that never starts
+  would otherwise point the agent at a log that is never written.
+- **The report waits for the tee to drain**, capped at two seconds, and the
+  transcript is finished with a newline — so under `2>&1` the report never
+  starts mid-line.
 
 ## Exit codes
 

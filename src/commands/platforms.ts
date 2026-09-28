@@ -28,7 +28,7 @@ subcommands[7]:
   device-support             prepare symbols for a physical device
   first-launch               install bundled packages and accept the license
   license                    report whether the Xcode license has been accepted
-flags[11]:
+flags[12]:
   --all                 with download: every platform Xcode offers
   --export-path <path>  download to this directory instead of installing
   --build-version <v>   a specific OS or asset build to fetch
@@ -40,9 +40,10 @@ flags[11]:
   --architecture <arch> with device-support: e.g. arm64e
   --status              with first-launch: report whether it is needed, and stop
   --check-updates       with first-launch: also check for newer components
+  --live                with a download, import, or install: print the transcript to stderr as it runs
 note:
   Downloads are multi-gigabyte and stream to a log rather than to stdout; the
-  log path is printed either way. Known component: MetalToolchain.
+  log path is printed either way, and on stderr once one has run 30 seconds. Known component: MetalToolchain.
 exit:
   0 succeeded, 1 the download or install failed, 2 usage error
 examples:
@@ -65,6 +66,7 @@ export const PLATFORMS_FLAGS = [
   "--architecture",
   "--check-updates",
   "--status",
+  "--live",
 ] as const;
 
 const VALUE_FLAGS = [
@@ -92,7 +94,7 @@ export async function platformsCommand(args: string[]): Promise<string> {
     case "download":
       return download(args, rest[0]);
     case "import":
-      return importPlatform(rest[0]);
+      return importPlatform(args, rest[0]);
     case "component":
       return component(args, rest[0], rest[1]);
     case "device-support":
@@ -192,6 +194,7 @@ async function download(
   const buildVersion = getFlag(args, "--build-version");
 
   return longRun({
+    live: hasFlag(args, "--live"),
     args: [
       ...(all
         ? ["-downloadAllPlatforms"]
@@ -206,7 +209,10 @@ async function download(
   });
 }
 
-async function importPlatform(path: string | undefined): Promise<string> {
+async function importPlatform(
+  args: string[],
+  path: string | undefined,
+): Promise<string> {
   if (path === undefined) {
     throw new AxiError(
       "platforms import needs a path to a .dmg",
@@ -222,6 +228,7 @@ async function importPlatform(path: string | undefined): Promise<string> {
   }
 
   return longRun({
+    live: hasFlag(args, "--live"),
     args: ["-importPlatform", full],
     label: "import-platform",
     key: "import",
@@ -300,6 +307,7 @@ async function component(
       );
     }
     return longRun({
+      live: hasFlag(args, "--live"),
       args: ["-importComponent", name, "-importPath", resolve(importPath)],
       label: `component-import-${name}`,
       key: "component",
@@ -309,6 +317,7 @@ async function component(
 
   if (op === "delete") {
     return longRun({
+      live: hasFlag(args, "--live"),
       args: ["-deleteComponent", name],
       label: `component-delete-${name}`,
       key: "component",
@@ -318,6 +327,7 @@ async function component(
 
   const buildVersion = getFlag(args, "--build-version");
   return longRun({
+    live: hasFlag(args, "--live"),
     args: [
       "-downloadComponent",
       name,
@@ -347,6 +357,7 @@ async function deviceSupport(args: string[]): Promise<string> {
   const architecture = getFlag(args, "--architecture");
 
   return longRun({
+    live: hasFlag(args, "--live"),
     args: [
       "-prepareDeviceSupport",
       "-platform",
@@ -381,6 +392,7 @@ async function firstLaunch(args: string[]): Promise<string> {
   }
 
   return longRun({
+    live: hasFlag(args, "--live"),
     args: [
       "-runFirstLaunch",
       ...(hasFlag(args, "--check-updates") ? ["-checkForNewerComponents"] : []),
@@ -418,6 +430,7 @@ interface LongRunOptions {
   label: string;
   key: string;
   subject: string;
+  live: boolean;
 }
 
 /**
@@ -429,6 +442,7 @@ async function longRun(options: LongRunOptions): Promise<string> {
     args: options.args,
     label: options.label,
     outDir: globalArtifactDir(),
+    live: options.live,
   });
 
   if (run.exitCode !== 0) {

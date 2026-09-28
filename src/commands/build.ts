@@ -24,7 +24,7 @@ import {
 
 export const BUILD_HELP = `usage: xcodebuild-axi build [flags]
 Builds a scheme and reports only what failed, with exact source locations.
-flags[49]:
+flags[50]:
 ${BUILD_FLAG_HELP}
   --clean                 clean before building
   --for-testing           build the tests too and emit an .xctestrun (build-for-testing)
@@ -142,6 +142,7 @@ async function installSources(args: string[]): Promise<string> {
     args: ["-project", container, "installsrc", `SRCROOT=${destination}`],
     label: `${project.name}-installsrc`,
     project,
+    live: hasFlag(args, "--live"),
   });
 
   if (run.exitCode !== 0) {
