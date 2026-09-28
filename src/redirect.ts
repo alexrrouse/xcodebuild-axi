@@ -166,9 +166,14 @@ export function shellQuote(word: string): string {
   return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Quote a device name the way this tool's own help does. */
-function quoteName(name: string): string {
-  return /^[\w.-]+$/.test(name) ? name : `"${name.replace(/"/g, '\\"')}"`;
+/**
+ * Quote a name or value the way this tool's own help does: bare when a shell
+ * leaves it alone, double-quoted otherwise.
+ */
+export function quoteName(name: string): string {
+  return /^[\w./=:,+@%-]+$/.test(name)
+    ? name
+    : `"${name.replace(/"/g, '\\"')}"`;
 }
 
 function isAction(word: string): boolean {
@@ -270,19 +275,34 @@ interface ParsedOption {
   value: string | undefined;
 }
 
+/**
+ * What this tool's own commands accept, for a guess that mixes spellings.
+ * Passed in by `cli.ts`, which owns the command table -- importing it here
+ * would be a cycle.
+ */
+export interface KnownFlags {
+  /** Each command's accepted flags. */
+  flags: Record<string, readonly string[]>;
+  /** Every flag that takes a value, on any command. */
+  valueFlags: readonly string[];
+}
+
 /** Split an xcodebuild argument list into actions, options and settings. */
-function parseXcodebuild(args: string[]): {
+function parseXcodebuild(
+  args: string[],
+  known?: KnownFlags,
+): {
   actions: string[];
   options: ParsedOption[];
   settings: string[];
   stray: string[];
-  ours: string[];
+  ours: ParsedOption[];
 } {
   const actions: string[] = [];
   const options: ParsedOption[] = [];
   const settings: string[] = [];
   const stray: string[] = [];
-  const ours: string[] = [];
+  const ours: ParsedOption[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const word = args[i] as string;
@@ -294,17 +314,21 @@ function parseXcodebuild(args: string[]): {
       // Two dashes is already this tool's spelling -- `build-for-testing
       // --scheme MyApp` mixes an xcodebuild action with our flags -- so it
       // passes through with its value rather than being judged unwrapped.
-      ours.push(word);
+      // Whether it takes one is known when the command table was passed; a
+      // value can be any word, `build` included, so it is not second-guessed.
+      const [flag, inline] = word.split(/=(.*)/s) as [string, string?];
       const next = args[i + 1];
-      if (
+      const takesValue =
+        inline === undefined &&
         next !== undefined &&
-        !next.startsWith("-") &&
-        !isAction(next) &&
-        !isSetting(next)
-      ) {
-        ours.push(next);
-        i++;
-      }
+        (known
+          ? known.valueFlags.includes(flag)
+          : !next.startsWith("-") && !isAction(next) && !isSetting(next));
+      ours.push({
+        option: flag,
+        value: inline ?? (takesValue ? next : undefined),
+      });
+      if (takesValue) i++;
     } else if (word.startsWith("-")) {
       const colon = word.indexOf(":");
       const bare = colon > 0 ? word.slice(0, colon) : word;
@@ -337,8 +361,12 @@ function parseXcodebuild(args: string[]): {
 export function translateXcodebuild(
   args: string[],
   forced?: string,
+  known?: KnownFlags,
 ): Translation {
-  const { actions, options, settings, stray, ours } = parseXcodebuild(args);
+  const { actions, options, settings, stray, ours } = parseXcodebuild(
+    args,
+    known,
+  );
   const notes: string[] = [];
   const unsupported: string[] = [];
 
@@ -424,8 +452,23 @@ export function translateXcodebuild(
   for (const setting of settings)
     parts.push(`--setting ${shellQuote(setting)}`);
   const baseWords = base.split(/\s+/);
-  for (const word of ours) {
-    if (!baseWords.includes(word)) parts.push(shellQuote(word));
+  for (const { option, value } of ours) {
+    if (baseWords.includes(option)) continue;
+    const accepted = known?.flags[command];
+    if (accepted && !accepted.includes(option)) {
+      const owner = Object.keys(known.flags).find((name) =>
+        known.flags[name]?.includes(option),
+      );
+      if (owner) {
+        notes.push(
+          `${option} belongs to \`xcodebuild-axi ${owner}\`, not \`${command}\``,
+        );
+      } else {
+        unsupported.push(option);
+      }
+      continue;
+    }
+    parts.push(value === undefined ? option : `${option} ${quoteName(value)}`);
   }
   for (const word of stray) unsupported.push(word);
 
@@ -441,8 +484,12 @@ function raw(tool: string, args: string[]): string {
  * Explain a raw `xcodebuild …` line handed to this tool, and what to run
  * instead.
  */
-export function xcodebuildRedirect(args: string[], word?: string): AxiError {
-  const translation = translateXcodebuild(args);
+export function xcodebuildRedirect(
+  args: string[],
+  word?: string,
+  known?: KnownFlags,
+): AxiError {
+  const translation = translateXcodebuild(args, undefined, known);
   const help = [
     `Run \`xcodebuild-axi ${translation.command}\``,
     ...translation.notes,
@@ -697,6 +744,7 @@ export function nearest(word: string, names: readonly string[]): string[] {
 export function redirectArgv(
   argv: string[],
   commands: readonly string[],
+  known?: KnownFlags,
 ): AxiError | undefined {
   const [first, ...rest] = argv;
   if (first === undefined) return undefined;
@@ -705,30 +753,32 @@ export function redirectArgv(
 
   if (first === "xcrun") {
     const [tool, ...more] = rest;
-    if (tool === "xcodebuild") return xcodebuildRedirect(more);
+    if (tool === "xcodebuild")
+      return xcodebuildRedirect(more, undefined, known);
     if (tool === "simctl") return simctlRedirect(more);
     if (tool === "xcresulttool" || tool === "xccov") {
       return companionRedirect(tool, more);
     }
   }
-  if (first === "xcodebuild") return xcodebuildRedirect(rest);
+  if (first === "xcodebuild") return xcodebuildRedirect(rest, undefined, known);
   if (first === "simctl") return simctlRedirect(rest);
   if (first === "xcresulttool" || first === "xccov") {
     return companionRedirect(first, rest);
   }
-  if (first.startsWith("-")) return xcodebuildRedirect(argv);
+  if (first.startsWith("-")) return xcodebuildRedirect(argv, undefined, known);
 
   // An xcodebuild action word or option name, typed as a command:
   // `build-for-testing`, `showBuildSettings`, `list`. A word with an alias
   // means the alias first — `install` is far more often "put it on the
   // simulator" than xcodebuild's install action.
   const aliases = VERB_ALIASES[first.toLowerCase()];
-  if (isAction(first) && !aliases) return xcodebuildRedirect(argv, first);
+  if (isAction(first) && !aliases)
+    return xcodebuildRedirect(argv, first, known);
   const asOption = Object.keys(OPTION_COVERAGE).find(
     (option) => option.slice(1).toLowerCase() === first.toLowerCase(),
   );
   if (asOption && impliedCommand(asOption) && !aliases) {
-    return xcodebuildRedirect([asOption, ...rest], first);
+    return xcodebuildRedirect([asOption, ...rest], first, known);
   }
 
   const typos = nearest(first, commands);

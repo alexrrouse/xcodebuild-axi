@@ -40,14 +40,14 @@ export const ARCHIVE_FLAGS = [
   "--archive-path",
   ...AUTH_FLAGS,
 ] as const;
-const VALUE_FLAGS = [
+export const ARCHIVE_VALUE_FLAGS = [
   ...SHARED_BUILD_VALUE_FLAGS,
   "--archive-path",
   ...AUTH_VALUE_FLAGS,
 ] as const;
 
 export async function archiveCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "archive", ARCHIVE_FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "archive", ARCHIVE_FLAGS, ARCHIVE_VALUE_FLAGS);
 
   // An archive built with CODE_SIGNING_ALLOWED=NO cannot be exported, so
   // unlike every other build-family command this one signs unless told

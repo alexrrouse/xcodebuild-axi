@@ -134,7 +134,7 @@ export function rejectUnknownFlags(
     if (bare === "--help") continue;
 
     if (!known.includes(bare)) {
-      const renamed = renamedFlag(bare, known);
+      const renamed = renamedFlag(bare, known, command.split(" ")[0] as string);
       const xcodebuild = bare.startsWith("--")
         ? undefined
         : xcodebuildFlagHint(command.split(" ")[0] as string, args);
@@ -185,9 +185,8 @@ const LIVE_SPELLINGS = ["--verbose", "--stream-console"];
 /**
  * What an agent types on `test` when it wants the tests compiled and not run.
  * `test` always runs them; `build --for-testing` is the half that only
- * compiles, and it needs no simulator. Keyed on `--without-building` being a
- * valid flag, which only `test` has, since `--for-testing` is valid on
- * `build` itself.
+ * compiles, and it needs no simulator. Keyed on the command, since
+ * `--for-testing` is valid on `build` itself.
  */
 const BUILD_ONLY_SPELLINGS = [
   "--build-only",
@@ -200,14 +199,12 @@ const BUILD_ONLY_SPELLINGS = [
 function renamedFlag(
   bare: string,
   known: readonly string[],
+  command: string,
 ): string | undefined {
   if (LIVE_SPELLINGS.includes(bare) && known.includes("--live")) {
     return `to watch the run, ${bare} is spelled --live here — it streams the transcript to stderr and still writes the log. For more detail in the log itself, --log-level verbose`;
   }
-  if (
-    BUILD_ONLY_SPELLINGS.includes(bare) &&
-    known.includes("--without-building")
-  ) {
+  if (BUILD_ONLY_SPELLINGS.includes(bare) && command === "test") {
     return "to compile the tests without running them, run `xcodebuild-axi build --for-testing` — then `xcodebuild-axi test --without-building` runs what it built";
   }
   return RENAMED_FLAGS[bare];

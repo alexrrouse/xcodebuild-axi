@@ -48,12 +48,12 @@ export const CLEAN_FLAGS = [
   "--live",
 ] as const;
 
-const VALUE_FLAGS = CLEAN_FLAGS.filter(
+export const CLEAN_VALUE_FLAGS = CLEAN_FLAGS.filter(
   (flag) => flag !== "--all-targets",
 ) as readonly string[];
 
 export async function cleanCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "clean", CLEAN_FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "clean", CLEAN_FLAGS, CLEAN_VALUE_FLAGS);
 
   // Cleaning needs no destination, and resolving one costs a whole
   // `-showdestinations` subprocess against a scheme we are about to wipe. One

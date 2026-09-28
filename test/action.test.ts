@@ -165,7 +165,25 @@ describe("runBuiltTestsHint", () => {
         "--clean",
       ]),
     ).toBe(
-      "Run `xcodebuild-axi test --without-building --scheme MyApp --device 'iPhone 17 Pro' --derived-data /tmp/dd` to run the tests just built",
+      'Run `xcodebuild-axi test --without-building --scheme MyApp --device "iPhone 17 Pro" --derived-data /tmp/dd` to run the tests just built',
+    );
+  });
+
+  // The configuration and settings decide where the products land; a hint
+  // without them looks for Debug products after a Release build.
+  it("carries everything test accepts, and nothing that only shapes the report", () => {
+    expect(
+      runBuiltTestsHint([
+        "--configuration=Release",
+        "--setting",
+        "SWIFT_VERSION=6",
+        "--max-errors",
+        "5",
+        "--full",
+        "--for-testing",
+      ]),
+    ).toBe(
+      "Run `xcodebuild-axi test --without-building --configuration Release --setting SWIFT_VERSION=6` to run the tests just built",
     );
   });
 

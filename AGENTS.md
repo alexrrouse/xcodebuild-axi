@@ -377,10 +377,13 @@ xcodebuild's `install` action.
 A guess can mix spellings — `build-for-testing --scheme MyApp` is an
 xcodebuild action followed by this tool's flags. A two-dash word is always
 this tool's spelling, so the redirect passes it through with its value
-rather than judging it unwrapped. And a flag guessed on the wrong command is
-answered in `renamedFlag`, keyed on what the command _does_ accept rather
-than its name: `test --build-only` points at `build --for-testing`, which
-is how issue #42 asked for a feature that had existed since 0.1.0.
+rather than judging it unwrapped — but only onto a command that accepts it,
+since suggesting a line that is then refused is worse than naming where the
+flag lives. Which flags take a value comes from the command table `cli.ts`
+passes in (`KnownFlags`), not from the next word's shape: a scheme can be
+called `build`. And a flag guessed on the wrong command is answered in
+`renamedFlag`: `test --build-only` points at `build --for-testing`, which is
+how issue #42 asked for a feature that had existed since 0.1.0.
 
 The SDK offers only a `renderUnknownCommand` hook and none for a leading
 flag, which is why this happens in `main()` on raw argv rather than inside
