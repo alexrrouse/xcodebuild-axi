@@ -59,6 +59,20 @@ describe("buildFields", () => {
       duration: "unknown",
     });
   });
+
+  // Observed on Xcode 27: a destination that matched nothing left a bundle
+  // saying `succeeded` beside the error that failed the build.
+  it("reports a bundle with errors as failed whatever its status says", () => {
+    expect(buildFields({ status: "succeeded", errorCount: 1 }).result).toBe(
+      "failed",
+    );
+    expect(
+      buildFields({
+        status: "succeeded",
+        errors: [{ message: "Unable to find a device" }],
+      }).result,
+    ).toBe("failed");
+  });
 });
 
 describe("flattenTests", () => {

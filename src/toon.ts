@@ -102,3 +102,8 @@ export function relativeTime(epochSeconds: number | undefined): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 }
+
+/** `1 error`, `2 errors`, `3 entries`. */
+export function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}

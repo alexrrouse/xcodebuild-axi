@@ -10,7 +10,11 @@ import {
   type BuildRun,
   type RunArtifacts,
 } from "./xcodebuild.js";
-import { readBuildResults, toDiagnostics } from "./xcresult.js";
+import {
+  isGenericFailure,
+  readBuildResults,
+  toDiagnostics,
+} from "./xcresult.js";
 import { diagnosticsBlock, transcriptTail } from "./report.js";
 import {
   defaultDeps,
@@ -495,18 +499,6 @@ export interface ReportActionOptions {
   analyzer?: boolean;
   /** Next steps to offer when the action succeeded. */
   help?: string[];
-}
-
-/**
- * "xcodebuild encountered an error (70)" is what a bundle records when
- * xcodebuild refused before doing anything. It is an error row rather than an
- * empty list, so a guard that only looks for emptiness prints the exit code as
- * though it were the diagnosis and never reads the transcript that has one.
- */
-function isGenericFailure(diagnostic: { message: string }): boolean {
-  return /^xcodebuild encountered an error \(\d+\)$/.test(
-    diagnostic.message.trim(),
-  );
 }
 
 /**

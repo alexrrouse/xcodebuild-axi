@@ -143,6 +143,12 @@ Both `build` and `test` therefore fall back to `mapXcodebuildError()` on the
 transcript tail whenever the bundle reports a failure with zero errors. Do not
 remove that fallback believing the bundle is always sufficient; it is not.
 
+The bundle's `status` is not trustworthy the other way round either. On Xcode
+27 a destination that matched nothing leaves a bundle that says `succeeded`
+beside `errorCount: 1` and the error that failed the build. `buildStatus` in
+`src/xcresult.ts` lets errors outrank the status, and every reader of a build
+verdict — `result`, the home view — goes through it.
+
 ## Sharp edges in xcodebuild itself
 
 - **It refuses to overwrite a result bundle.** A second run against the same

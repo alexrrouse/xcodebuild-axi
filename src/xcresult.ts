@@ -434,6 +434,40 @@ export function readBuildResults(path: string): Promise<BuildResults> {
   return xcresulttool<BuildResults>(["get", "build-results"], path);
 }
 
+/**
+ * "xcodebuild encountered an error (70)" is what a bundle records when
+ * xcodebuild refused before doing anything. It is an error row rather than an
+ * empty list, so a guard that only looks for emptiness prints the exit code as
+ * though it were the diagnosis and never reads the transcript that has one.
+ */
+export function isGenericFailure(diagnostic: { message?: string }): boolean {
+  return /^xcodebuild encountered an error \(\d+\)$/.test(
+    (diagnostic.message ?? "").trim(),
+  );
+}
+
+/**
+ * How many errors a build bundle has that say something -- not counting the
+ * generic exit-code row, which says only that xcodebuild gave up.
+ */
+export function buildErrorCount(build: BuildResults): number {
+  return build.errors
+    ? build.errors.filter((issue) => !isGenericFailure(issue)).length
+    : (build.errorCount ?? 0);
+}
+
+/**
+ * The verdict a build bundle records, lowercased -- except that errors
+ * outrank it. A build whose destination matched nothing leaves a bundle
+ * saying `succeeded` beside the error that failed it, observed on Xcode 27,
+ * and read at face value that is a failed build reported as a clean one.
+ */
+export function buildStatus(build: BuildResults): string | undefined {
+  const status = build.status?.toLowerCase();
+  const errors = Math.max(build.errorCount ?? 0, build.errors?.length ?? 0);
+  return status === "succeeded" && errors > 0 ? "failed" : status;
+}
+
 /** What `xcresulttool compare` answers: one run measured against another. */
 export interface Differential {
   summary?: DifferentialSummary;

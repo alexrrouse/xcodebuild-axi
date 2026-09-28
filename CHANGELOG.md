@@ -31,6 +31,17 @@ attachments` with no bundle path copied in between. Reads only a test run can
 
 ### Fixed
 
+- **The home view says whether the last build worked.** A build, analyze,
+  archive or clean reads `build succeeded`, `build failed (2 errors)` or
+  `build failed before building` instead of the bare command name, and one
+  whose bundle holds nothing to read points at its log. A `run` reports its
+  build — `run build succeeded` — and makes no claim about the launch; a
+  test run whose build failed says `test build failed (2 errors)` rather
+  than that it recorded no tests. Closes #37.
+- **A build bundle carrying errors is never reported as succeeded.** A
+  destination that matched nothing leaves a bundle whose status says
+  `succeeded` beside the error that failed the build; `result` printed
+  `result: succeeded` over it. Errors now outrank the recorded status.
 - **`test --only` no longer passes a selector that matched nothing.**
   xcodebuild runs one as zero tests and exits 0, so a new suite not yet in its
   target — alone, or beside selectors that did match — came back

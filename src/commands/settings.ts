@@ -3,7 +3,13 @@ import { requireProject } from "../context.js";
 import { resolveSubject } from "../scheme.js";
 import { resolveDestination } from "../destination.js";
 import { runMetadata } from "../xcodebuild.js";
-import { renderFields, renderHelp, renderList, renderOutput } from "../toon.js";
+import {
+  plural,
+  renderFields,
+  renderHelp,
+  renderList,
+  renderOutput,
+} from "../toon.js";
 import {
   getFlag,
   getIntFlag,
@@ -466,10 +472,6 @@ function findFile(
     }
   }
   return undefined;
-}
-
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
 }
 
 function relativeToCwd(path: string): string {

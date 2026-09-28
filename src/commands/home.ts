@@ -1,9 +1,19 @@
-import { newestBundle } from "../bundles.js";
+import { existsSync } from "node:fs";
+import { logFor, newestBundle, type RecordedBundle } from "../bundles.js";
 import { resolveProject, type ProjectContext } from "../context.js";
 import { listSchemes } from "../scheme.js";
 import { artifactDir } from "../xcodebuild.js";
-import { readTestSummary, describeDevice } from "../xcresult.js";
 import {
+  buildErrorCount,
+  buildStatus,
+  readBuildResults,
+  readTestSummary,
+  describeDevice,
+  type BuildResults,
+} from "../xcresult.js";
+import { testsNeverRan } from "./test.js";
+import {
+  plural,
   relativeTime,
   renderFields,
   renderHelp,
@@ -88,7 +98,6 @@ async function describeLastRun(
   const newest = newestBundle(dir).chosen;
   if (!newest) return undefined;
 
-  const summary = await readTestSummary(newest.path).catch(() => undefined);
   const when = relativeTime(newest.mtimeMs / 1000);
   const where = `see \`xcodebuild-axi result ${tildePath(newest.path)}\``;
   const kind = newest.kind;
@@ -98,16 +107,29 @@ async function describeLastRun(
   // rather than as nothing. Reading that as a verdict rendered a build as
   // "Test - X on unknown — 0 passed", which is the shape of a clean pass and
   // was observed on a real build bundle. The old guard did not catch it
-  // because it tested for `undefined` and the count is `0`.
+  // because it tested for `undefined` and the count is `0`. Every other
+  // kind is read through `build-results` instead, which is where its verdict
+  // lives.
   //
   // Which command wrote the bundle is not a guess: `runLabel` names it
   // `<scheme>[-<device>]-<command>`, and `bundleKind` reads that back past
   // the per-run pid.
   if (kind !== "test") {
-    return `${when} — ${kind} — ${where}`;
+    if (!VERDICT_KINDS.has(kind)) return `${when} — ${kind} — ${where}`;
+    const results = await readBuildResults(newest.path).catch(() => undefined);
+    return `${when} — ${buildVerdict(kind, results) ?? kind} — ${pointer(newest, results, where)}`;
   }
+  const summary = await readTestSummary(newest.path).catch(() => undefined);
   if (!summary || !summary.totalTestCount) {
-    return `${when} — test recorded no tests — ${where}`;
+    // Zero tests is as often a build that failed under them as an empty
+    // run, and the test command tells the two apart the same way.
+    const results = await readBuildResults(newest.path).catch(() => undefined);
+    const verdict = testsNeverRan(summary, results)
+      ? buildVerdict(kind, results)
+      : undefined;
+    return verdict
+      ? `${when} — ${verdict} — ${pointer(newest, results, where)}`
+      : `${when} — test recorded no tests — ${where}`;
   }
 
   const failed = summary.failedTests ?? 0;
@@ -117,4 +139,86 @@ async function describeLastRun(
       ? `${failed} failed, ${summary.passedTests ?? 0} passed`
       : `${summary.passedTests ?? 0} passed`;
   return `${summary.title ?? "test"} on ${device} — ${verdict} (${when})`;
+}
+
+/**
+ * The kinds whose bundle's build results are a verdict on the run. `tests`
+ * stops before running anything and its bundle says nothing about whether
+ * the listing worked, so it keeps the bare kind.
+ */
+const VERDICT_KINDS = new Set([
+  "build",
+  "analyze",
+  "archive",
+  "clean",
+  "run",
+  "test",
+]);
+
+/**
+ * How a run went, from its bundle's build results: `build succeeded`, `build
+ * failed (2 errors)`. Undefined when the bundle does not say, so the caller
+ * keeps the bare kind rather than guessing.
+ *
+ * Without this the home view named the last build and not whether it worked,
+ * which is the one thing an agent opening a session wants to know about it.
+ * A `run` bundle covers only the build, never the launch, and a `test` one is
+ * read here only when its tests never ran, so both verdicts are the build's.
+ * Statuses are matched against the words xcresulttool is known to use, so an
+ * unexpected one cannot reach the output.
+ */
+export function buildVerdict(
+  kind: string,
+  results: BuildResults | undefined,
+): string | undefined {
+  if (!VERDICT_KINDS.has(kind) || !results) return undefined;
+  const subject = kind === "run" || kind === "test" ? `${kind} build` : kind;
+  const errors = buildErrorCount(results);
+  const counted = errors > 0 ? ` (${plural(errors, "error")})` : "";
+  const status = buildStatus(results);
+  switch (status) {
+    case "succeeded": {
+      const analyzer = results.analyzerWarningCount ?? 0;
+      return kind === "analyze" && analyzer > 0
+        ? `${subject} succeeded (${plural(analyzer, "analyzer warning")})`
+        : `${subject} succeeded`;
+    }
+    case "failed":
+      return `${subject} failed${counted}`;
+    // What an xcodebuild that died before building anything can record, with
+    // no error to go with it (see AGENTS.md).
+    case "notrequested":
+      return counted
+        ? `${subject} failed${counted}`
+        : `${subject} failed before building`;
+    case "cancelled":
+    case "interrupted":
+      return `${subject} ${status}${counted}`;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Whether a bundle has nothing worth reading: it could not be read at all --
+ * a run killed before it was finished, or one still going -- or it failed
+ * without an error that says why. Then the transcript is the only witness.
+ */
+export function nothingToRead(results: BuildResults | undefined): boolean {
+  return (
+    !results ||
+    (buildStatus(results) !== "succeeded" && buildErrorCount(results) === 0)
+  );
+}
+
+/** Where to send the agent next: the bundle, or its log when that is empty. */
+function pointer(
+  bundle: RecordedBundle,
+  results: BuildResults | undefined,
+  where: string,
+): string {
+  const log = logFor(bundle.path);
+  return nothingToRead(results) && existsSync(log)
+    ? `see ${tildePath(log)}`
+    : where;
 }
