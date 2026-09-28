@@ -8,7 +8,7 @@ import {
   buildFailureHints,
 } from "../src/action.js";
 import { AxiError } from "../src/errors.js";
-import { buildCommand } from "../src/commands/build.js";
+import { buildCommand, runBuiltTestsHint } from "../src/commands/build.js";
 
 describe("build passthrough flags", () => {
   it("passes nothing when nothing is asked for", () => {
@@ -146,5 +146,50 @@ describe("buildFailureHints", () => {
         tail: "** BUILD FAILED **",
       }),
     ).toEqual([]);
+  });
+});
+
+describe("runBuiltTestsHint", () => {
+  // `test --without-building` finds the products only for the same scheme,
+  // destination and DerivedData, so the flags that chose them carry over.
+  it("carries over the flags that chose what was built", () => {
+    expect(
+      runBuiltTestsHint([
+        "--scheme",
+        "MyApp",
+        "--device",
+        "iPhone 17 Pro",
+        "--derived-data",
+        "/tmp/dd",
+        "--for-testing",
+        "--clean",
+      ]),
+    ).toBe(
+      'Run `xcodebuild-axi test --without-building --scheme MyApp --device "iPhone 17 Pro" --derived-data /tmp/dd` to run the tests just built',
+    );
+  });
+
+  // The configuration and settings decide where the products land; a hint
+  // without them looks for Debug products after a Release build.
+  it("carries everything test accepts, and nothing that only shapes the report", () => {
+    expect(
+      runBuiltTestsHint([
+        "--configuration=Release",
+        "--setting",
+        "SWIFT_VERSION=6",
+        "--max-errors",
+        "5",
+        "--full",
+        "--for-testing",
+      ]),
+    ).toBe(
+      "Run `xcodebuild-axi test --without-building --configuration Release --setting SWIFT_VERSION=6` to run the tests just built",
+    );
+  });
+
+  it("stays bare when nothing was chosen", () => {
+    expect(runBuiltTestsHint(["--for-testing"])).toBe(
+      "Run `xcodebuild-axi test --without-building` to run the tests just built",
+    );
   });
 });

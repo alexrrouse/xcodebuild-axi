@@ -11,6 +11,8 @@ import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join, resolve as resolvePath } from "node:path";
 import { requireProject } from "../context.js";
+import { quoteName } from "../redirect.js";
+import { TEST_FLAGS, TEST_VALUE_FLAGS } from "./test.js";
 import type { ProjectContext } from "../context.js";
 import { artifactDir, runBuild } from "../xcodebuild.js";
 import {
@@ -54,7 +56,10 @@ export const BUILD_FLAGS = [
   "--yes",
 ] as const;
 
-const BUILD_VALUE_FLAGS = [...SHARED_BUILD_VALUE_FLAGS, "--src-root"] as const;
+export const BUILD_VALUE_FLAGS = [
+  ...SHARED_BUILD_VALUE_FLAGS,
+  "--src-root",
+] as const;
 
 export async function buildCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "build", BUILD_FLAGS, BUILD_VALUE_FLAGS);
@@ -75,8 +80,46 @@ export async function buildCommand(args: string[]): Promise<string> {
     key: "build",
     ok: "succeeded",
     command: "build",
+    // Only when there is something to run the tests on and a scheme to run
+    // them with: a placeholder destination compiles but runs nothing, and
+    // `test` takes a scheme, not targets.
+    ...(action === "build-for-testing" &&
+    !context.destinationSpecifier?.startsWith("generic/") &&
+    !context.subject.targetMode
+      ? { help: [runBuiltTestsHint(args)] }
+      : {}),
   });
 }
+
+/**
+ * What to run after `build --for-testing`: the tests it built, without
+ * building them again. `test --without-building` finds them only for the
+ * same scheme, destination, configuration and DerivedData, so every flag
+ * `test` also accepts is carried over as it was typed -- except the ones
+ * that only shape this report.
+ */
+export function runBuiltTestsHint(args: string[]): string {
+  const carried: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i] as string;
+    const [flag, inline] = word.split(/=(.*)/s) as [string, string?];
+    if (!(TEST_FLAGS as readonly string[]).includes(flag)) continue;
+    const takesValue = (TEST_VALUE_FLAGS as readonly string[]).includes(flag);
+    const value = takesValue ? (inline ?? args[++i]) : undefined;
+    if (REPORT_ONLY_FLAGS.has(flag)) continue;
+    carried.push(value === undefined ? flag : `${flag} ${quoteName(value)}`);
+  }
+  const line = ["xcodebuild-axi test --without-building", ...carried].join(" ");
+  return `Run \`${line}\` to run the tests just built`;
+}
+
+/** Flags that change how a report reads, not what gets built or run. */
+const REPORT_ONLY_FLAGS = new Set([
+  "--max-errors",
+  "--full",
+  "--live",
+  "--artifacts-dir",
+]);
 
 /**
  * The build family's four actions are mutually exclusive: xcodebuild would

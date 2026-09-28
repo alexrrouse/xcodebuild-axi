@@ -20,6 +20,77 @@ function firstRun(error: { suggestions: string[] } | undefined): string {
 }
 
 describe("translateXcodebuild", () => {
+  // Issue #42: an xcodebuild action followed by this tool's own flags. The
+  // flags were judged unwrapped, dropped from the suggestion, and the raw
+  // fallback offered instead.
+  it("keeps this tool's own flags after an xcodebuild action word", () => {
+    const translation = translateXcodebuild([
+      "build-for-testing",
+      "--scheme",
+      "MyApp",
+      "--device",
+      "iPhone 17 Pro",
+    ]);
+    expect(translation.command).toBe(
+      'build --for-testing --scheme MyApp --device "iPhone 17 Pro"',
+    );
+    expect(translation.unsupported).toEqual([]);
+  });
+
+  // With the command table, what the flags mean is known rather than
+  // guessed.
+  const KNOWN = {
+    flags: COMMAND_FLAGS,
+    valueFlags: ["--scheme", "--device", "--only", "--configuration"],
+  };
+
+  it("takes a value flag's value even when it is an action word", () => {
+    expect(
+      translateXcodebuild(
+        ["test-without-building", "--scheme", "build"],
+        undefined,
+        KNOWN,
+      ).command,
+    ).toBe("test --without-building --scheme build");
+  });
+
+  it("leaves a stray word after a flag that takes no value unwrapped", () => {
+    const translation = translateXcodebuild(
+      ["build-for-testing", "--clean", "StrayWord"],
+      undefined,
+      KNOWN,
+    );
+    expect(translation.command).toBe("build --for-testing --clean");
+    expect(translation.unsupported).toEqual(["StrayWord"]);
+  });
+
+  // Suggesting a command that then refuses the flag is worse than saying
+  // where the flag lives.
+  it("says which command a flag belongs to rather than suggesting it here", () => {
+    const translation = translateXcodebuild(
+      ["build-for-testing", "--scheme", "MyApp", "--only", "MyAppTests"],
+      undefined,
+      KNOWN,
+    );
+    expect(translation.command).toBe("build --for-testing --scheme MyApp");
+    expect(translation.notes).toContain(
+      "--only belongs to `xcodebuild-axi test`, not `build`",
+    );
+  });
+
+  it("calls a flag no command has unwrapped", () => {
+    expect(
+      translateXcodebuild(["build-for-testing", "--bogus"], undefined, KNOWN)
+        .unsupported,
+    ).toEqual(["--bogus"]);
+  });
+
+  it("does not repeat a flag the action already implies", () => {
+    expect(
+      translateXcodebuild(["build-for-testing", "--for-testing"]).command,
+    ).toBe("build --for-testing");
+  });
+
   it("turns a whole test invocation into one command", () => {
     const translation = translateXcodebuild([
       "-workspace",

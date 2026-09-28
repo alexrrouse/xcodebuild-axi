@@ -374,6 +374,17 @@ redirect layer. Plain-word guesses (`screenshot`, `logs`, `install`) live in
 `install` means "put the app on the simulator" far more often than it means
 xcodebuild's `install` action.
 
+A guess can mix spellings — `build-for-testing --scheme MyApp` is an
+xcodebuild action followed by this tool's flags. A two-dash word is always
+this tool's spelling, so the redirect passes it through with its value
+rather than judging it unwrapped — but only onto a command that accepts it,
+since suggesting a line that is then refused is worse than naming where the
+flag lives. Which flags take a value comes from the command table `cli.ts`
+passes in (`KnownFlags`), not from the next word's shape: a scheme can be
+called `build`. And a flag guessed on the wrong command is answered in
+`renamedFlag`: `test --build-only` points at `build --for-testing`, which is
+how issue #42 asked for a feature that had existed since 0.1.0.
+
 The SDK offers only a `renderUnknownCommand` hook and none for a leading
 flag, which is why this happens in `main()` on raw argv rather than inside
 the SDK.
@@ -593,7 +604,9 @@ view reports on the same one; both go through `src/bundles.ts`. Recency is the
 mtime. The name matters only for the kind: reads that mean nothing on a build
 (`--export attachments`, `--tests`, …) take the newest _test_ bundle, and
 `bundleKind` is the one place that parses the naming to decide that — it
-strips the all-digit per-run suffix, then takes the command. Rename the
+strips the all-digit per-run suffix, then takes the command. The command is
+the last hyphen-separated segment except for `build-for-testing`, the one
+label with hyphens of its own, which is matched whole. Rename the
 bundles and it has to change in the same commit. A run given
 `--artifacts-dir` is invisible to the default by design — it is not in the
 directory, and the refusal says so.

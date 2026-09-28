@@ -141,32 +141,36 @@ help[2]:
   Run `xcodebuild-axi test --scheme <name>` to run tests
 ```
 
-| Command        | What it does                                                       |
-| -------------- | ------------------------------------------------------------------ |
-| _(none)_       | Dashboard: what is here, what can be built, how the last run went  |
-| `build`        | Build a scheme; report only errors, with `file,line,col`           |
-| `run`          | Build, install and launch the app, with its console in a file      |
-| `test`         | Run tests; report counts and only the failures                     |
-| `tests`        | Enumerate the tests a scheme defines, without running them         |
-| `clean`        | Clean a scheme's build products                                    |
-| `analyze`      | Run the static analyzer; report only what it found                 |
-| `archive`      | Archive a scheme and report the archive's bundle id and version    |
-| `export`       | Export an archive, writing the export options plist for you        |
-| `schemes`      | List the schemes in the workspace or project                       |
-| `destinations` | List the destinations a scheme can actually run on                 |
-| `testplans`    | List a scheme's test plans                                         |
-| `settings`     | Read named build settings instead of dumping all 400               |
-| `packages`     | Read the pinned Swift package versions; resolve them on request    |
-| `info`         | Xcode version, SDKs, and what this tool is pointed at              |
-| `result`       | Re-read a previous run's `.xcresult` without rebuilding            |
-| `coverage`     | Code coverage from a result bundle, per target or per file         |
-| `sim`          | Drive simulators: screenshots, logs, permissions, pushes, and more |
-| `platforms`    | Installed runtimes, and the downloads that add more                |
-| `localize`     | Export and import XLIFF localization catalogs                      |
-| `xcframework`  | Bundle built frameworks or libraries into an `.xcframework`        |
-| `find`         | Resolve an executable or library to its toolchain path             |
-| `migrate`      | Report the project file format, and convert it to a newer one      |
-| `setup`        | Install session-start hooks for Claude Code, Codex, and OpenCode   |
+| Command        | What it does                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------ |
+| _(none)_       | Dashboard: what is here, what can be built, how the last run went                                |
+| `build`        | Build a scheme; report only errors, with `file,line,col`; `--for-testing` compiles its tests too |
+| `run`          | Build, install and launch the app, with its console in a file                                    |
+| `test`         | Run tests; report counts and only the failures                                                   |
+| `tests`        | Enumerate the tests a scheme defines, without running them                                       |
+| `clean`        | Clean a scheme's build products                                                                  |
+| `analyze`      | Run the static analyzer; report only what it found                                               |
+| `archive`      | Archive a scheme and report the archive's bundle id and version                                  |
+| `export`       | Export an archive, writing the export options plist for you                                      |
+| `schemes`      | List the schemes in the workspace or project                                                     |
+| `destinations` | List the destinations a scheme can actually run on                                               |
+| `testplans`    | List a scheme's test plans                                                                       |
+| `settings`     | Read named build settings instead of dumping all 400                                             |
+| `packages`     | Read the pinned Swift package versions; resolve them on request                                  |
+| `info`         | Xcode version, SDKs, and what this tool is pointed at                                            |
+| `result`       | Re-read a previous run's `.xcresult` without rebuilding                                          |
+| `coverage`     | Code coverage from a result bundle, per target or per file                                       |
+| `sim`          | Drive simulators: screenshots, logs, permissions, pushes, and more                               |
+| `platforms`    | Installed runtimes, and the downloads that add more                                              |
+| `localize`     | Export and import XLIFF localization catalogs                                                    |
+| `xcframework`  | Bundle built frameworks or libraries into an `.xcframework`                                      |
+| `find`         | Resolve an executable or library to its toolchain path                                           |
+| `migrate`      | Report the project file format, and convert it to a newer one                                    |
+| `setup`        | Install session-start hooks for Claude Code, Codex, and OpenCode                                 |
+
+To check that tests compile without running them — no simulator is booted —
+`build --for-testing` compiles the scheme's test bundles, and its report says
+the `test --without-building` line that runs what it built.
 
 Every command takes `--help`.
 

@@ -62,7 +62,7 @@ ${BUILD_FLAG_HELP}
   --only <id>            run only this Target/Class/method; repeatable or comma-separated; a miss fails
   --skip <id>            skip this test/class/target; repeatable or comma-separated
   --coverage             collect code coverage and report the overall percentage
-  --without-building     test already-built products (test-without-building)
+  --without-building     test products \`build --for-testing\` built (test-without-building)
   --xctestrun <path>     test from an .xctestrun file instead of a scheme
   --parallel <n>         exact number of parallel test runners
   --no-parallel          disable parallel testing
@@ -128,7 +128,7 @@ export const TEST_FLAGS = [
   "--max-failures",
 ] as const;
 
-const VALUE_FLAGS = [
+export const TEST_VALUE_FLAGS = [
   ...SHARED_BUILD_VALUE_FLAGS,
   ...DEVICE_LOCK_VALUE_FLAGS,
   "--test-plan",
@@ -151,7 +151,7 @@ const VALUE_FLAGS = [
 ] as const;
 
 export async function testCommand(args: string[]): Promise<string> {
-  rejectUnknownFlags(args, "test", TEST_FLAGS, VALUE_FLAGS);
+  rejectUnknownFlags(args, "test", TEST_FLAGS, TEST_VALUE_FLAGS);
 
   if (hasFlag(args, "--retry") && hasFlag(args, "--until-failure")) {
     // xcodebuild rejects this combination itself, but only after building.

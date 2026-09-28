@@ -78,6 +78,8 @@ export function newestBundle(
  */
 export function bundleKind(path: string): string {
   const stem = basename(path, ".xcresult").replace(/(-\d+)+$/, "");
+  // The one command label with a hyphen of its own.
+  if (stem.endsWith("-build-for-testing")) return "build-for-testing";
   const tail = stem.split("-").pop();
   // `basename` leaves the extension alone when stripping it would leave
   // nothing, so a degenerate ".xcresult" comes back whole. A command name

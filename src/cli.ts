@@ -1,13 +1,29 @@
 import { encode } from "@toon-format/toon";
 import { runAxiCli } from "axi-sdk-js";
 import { AxiError, DeviceBusyError, exitCodeForError } from "./errors.js";
-import { redirectArgv } from "./redirect.js";
+import { redirectArgv, type KnownFlags } from "./redirect.js";
+import { SHARED_BUILD_VALUE_FLAGS } from "./action.js";
 import { VERSION } from "./version.js";
 import { homeCommand } from "./commands/home.js";
-import { buildCommand, BUILD_HELP, BUILD_FLAGS } from "./commands/build.js";
-import { testCommand, TEST_HELP, TEST_FLAGS } from "./commands/test.js";
+import {
+  buildCommand,
+  BUILD_HELP,
+  BUILD_FLAGS,
+  BUILD_VALUE_FLAGS,
+} from "./commands/build.js";
+import {
+  testCommand,
+  TEST_HELP,
+  TEST_FLAGS,
+  TEST_VALUE_FLAGS,
+} from "./commands/test.js";
 import { testsCommand, TESTS_HELP, TESTS_FLAGS } from "./commands/tests.js";
-import { cleanCommand, CLEAN_HELP, CLEAN_FLAGS } from "./commands/clean.js";
+import {
+  cleanCommand,
+  CLEAN_HELP,
+  CLEAN_FLAGS,
+  CLEAN_VALUE_FLAGS,
+} from "./commands/clean.js";
 import {
   analyzeCommand,
   ANALYZE_HELP,
@@ -17,6 +33,7 @@ import {
   archiveCommand,
   ARCHIVE_HELP,
   ARCHIVE_FLAGS,
+  ARCHIVE_VALUE_FLAGS,
 } from "./commands/archive.js";
 import { exportCommand, EXPORT_HELP, EXPORT_FLAGS } from "./commands/export.js";
 import {
@@ -161,6 +178,24 @@ export const COMMAND_FLAGS: Record<string, readonly string[]> = {
   setup: SETUP_FLAGS,
 };
 
+/**
+ * What the redirect needs to pass this tool's own flags through a guess
+ * spelled in xcodebuild's words: which command takes which flag, and which
+ * flags take a value. Only the build family is ever the target of one.
+ */
+const KNOWN_FLAGS: KnownFlags = {
+  flags: COMMAND_FLAGS,
+  valueFlags: [
+    ...new Set([
+      ...BUILD_VALUE_FLAGS,
+      ...TEST_VALUE_FLAGS,
+      ...CLEAN_VALUE_FLAGS,
+      ...ARCHIVE_VALUE_FLAGS,
+      ...SHARED_BUILD_VALUE_FLAGS,
+    ]),
+  ],
+};
+
 const COMMANDS = {
   build: (args: string[]) => buildCommand(args),
   run: (args: string[]) => runCommand(args),
@@ -233,7 +268,7 @@ export async function main(options: MainOptions = {}): Promise<void> {
   // A miss is answered here rather than by the SDK, whose "Unknown command"
   // names nothing to run instead — see src/redirect.ts for why that matters.
   const argv = options.argv ?? process.argv.slice(2);
-  const redirect = redirectArgv(argv, Object.keys(COMMANDS));
+  const redirect = redirectArgv(argv, Object.keys(COMMANDS), KNOWN_FLAGS);
   if (redirect) {
     const formatted = formatCliError(redirect);
     (options.stdout ?? process.stdout).write(formatted.output);

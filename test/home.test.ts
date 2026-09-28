@@ -62,6 +62,15 @@ describe("buildVerdict", () => {
     );
   });
 
+  it("gives the other build actions a verdict too", () => {
+    expect(buildVerdict("build-for-testing", { status: "succeeded" })).toBe(
+      "build-for-testing succeeded",
+    );
+    expect(buildVerdict("docbuild", { status: "failed", errorCount: 1 })).toBe(
+      "docbuild failed (1 error)",
+    );
+  });
+
   it("gives no verdict when the bundle does not say", () => {
     expect(buildVerdict("build", undefined)).toBeUndefined();
     expect(buildVerdict("build", {})).toBeUndefined();
