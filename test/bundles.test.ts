@@ -32,6 +32,19 @@ describe("bundleKind", () => {
     expect(bundleKind("/cache/MyApp-analyze.xcresult")).toBe("analyze");
   });
 
+  // The one command whose name has hyphens of its own; split naively it read
+  // as "testing".
+  it("reads build-for-testing whole", () => {
+    expect(
+      bundleKind(
+        "/cache/MyApp-iPhone-17-Pro-26-5-build-for-testing-4821.xcresult",
+      ),
+    ).toBe("build-for-testing");
+    expect(bundleKind("/cache/MyApp-build-for-testing.xcresult")).toBe(
+      "build-for-testing",
+    );
+  });
+
   it("handles a scheme with no device slug", () => {
     expect(bundleKind("/cache/MyApp-build.xcresult")).toBe("build");
   });

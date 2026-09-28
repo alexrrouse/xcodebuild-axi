@@ -123,6 +123,32 @@ describe("rejectUnknownFlags", () => {
     }
   });
 
+  // Issue #42: `build --for-testing` existed all along, and the guess that
+  // should have found it got the whole valid-flag list instead.
+  it("points a build-only guess on test at build --for-testing", () => {
+    for (const guess of ["--build-only", "--compile-only", "--for-testing"]) {
+      try {
+        rejectUnknownFlags([guess], "test", ["--without-building"]);
+        expect.unreachable("should have thrown");
+      } catch (error) {
+        expect((error as AxiError).suggestions).toEqual([
+          expect.stringContaining("`xcodebuild-axi build --for-testing`"),
+        ]);
+      }
+    }
+  });
+
+  it("does not send another command's --build-only to build", () => {
+    try {
+      rejectUnknownFlags(["--build-only"], "run", ["--no-build"]);
+      expect.unreachable("should have thrown");
+    } catch (error) {
+      expect((error as AxiError).suggestions.join(" ")).not.toContain(
+        "--for-testing",
+      );
+    }
+  });
+
   it("does not offer --live to a command without it", () => {
     try {
       rejectUnknownFlags(["--verbose"], "settings", ["--key"]);

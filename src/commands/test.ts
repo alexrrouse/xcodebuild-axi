@@ -62,7 +62,7 @@ ${BUILD_FLAG_HELP}
   --only <id>            run only this Target/Class/method; repeatable or comma-separated; a miss fails
   --skip <id>            skip this test/class/target; repeatable or comma-separated
   --coverage             collect code coverage and report the overall percentage
-  --without-building     test already-built products (test-without-building)
+  --without-building     test products \`build --for-testing\` built (test-without-building)
   --xctestrun <path>     test from an .xctestrun file instead of a scheme
   --parallel <n>         exact number of parallel test runners
   --no-parallel          disable parallel testing

@@ -148,6 +148,9 @@ async function describeLastRun(
  */
 const VERDICT_KINDS = new Set([
   "build",
+  "build-for-testing",
+  "install",
+  "docbuild",
   "analyze",
   "archive",
   "clean",

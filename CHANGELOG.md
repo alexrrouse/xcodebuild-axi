@@ -31,6 +31,14 @@ attachments` with no bundle path copied in between. Reads only a test run can
 
 ### Fixed
 
+- **Compiling tests without running them is findable.** `build
+--for-testing` has always done it, but the guesses that should have found
+  it did not: `test --build-only` (or `--compile-only`, `--no-run`,
+  `--for-testing`) now points at it, and `build-for-testing --scheme MyApp`
+  translates to `build --for-testing --scheme MyApp` instead of calling
+  `--scheme` unwrapped. A for-testing build's report names the
+  `test --without-building` line that runs what it built, and the home view
+  says `build-for-testing succeeded` rather than `testing`. Closes #42.
 - **When the build under `test` fails, its cause comes first.** The bundle
   lists xcodebuild's "Testing cancelled because the build failed." ahead of
   the reason — a locked build database, a source file that is gone — and

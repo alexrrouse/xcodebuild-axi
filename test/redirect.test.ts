@@ -20,6 +20,29 @@ function firstRun(error: { suggestions: string[] } | undefined): string {
 }
 
 describe("translateXcodebuild", () => {
+  // Issue #42: an xcodebuild action followed by this tool's own flags. The
+  // flags were judged unwrapped, dropped from the suggestion, and the raw
+  // fallback offered instead.
+  it("keeps this tool's own flags after an xcodebuild action word", () => {
+    const translation = translateXcodebuild([
+      "build-for-testing",
+      "--scheme",
+      "MyApp",
+      "--device",
+      "iPhone 17 Pro",
+    ]);
+    expect(translation.command).toBe(
+      "build --for-testing --scheme MyApp --device 'iPhone 17 Pro'",
+    );
+    expect(translation.unsupported).toEqual([]);
+  });
+
+  it("does not repeat a flag the action already implies", () => {
+    expect(
+      translateXcodebuild(["build-for-testing", "--for-testing"]).command,
+    ).toBe("build --for-testing");
+  });
+
   it("turns a whole test invocation into one command", () => {
     const translation = translateXcodebuild([
       "-workspace",

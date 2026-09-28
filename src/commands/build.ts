@@ -11,6 +11,7 @@ import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join, resolve as resolvePath } from "node:path";
 import { requireProject } from "../context.js";
+import { shellQuote } from "../redirect.js";
 import type { ProjectContext } from "../context.js";
 import { artifactDir, runBuild } from "../xcodebuild.js";
 import {
@@ -75,7 +76,25 @@ export async function buildCommand(args: string[]): Promise<string> {
     key: "build",
     ok: "succeeded",
     command: "build",
+    ...(action === "build-for-testing"
+      ? { help: [runBuiltTestsHint(args)] }
+      : {}),
   });
+}
+
+/**
+ * What to run after `build --for-testing`: the tests it built, without
+ * building them again. `test --without-building` finds them only in the same
+ * DerivedData and for the same scheme and destination, so the flags that
+ * chose those are carried over as they were typed.
+ */
+export function runBuiltTestsHint(args: string[]): string {
+  const carried = ["--scheme", "--device", "--destination", "--derived-data"]
+    .map((flag) => [flag, getFlag(args, flag)] as const)
+    .filter((pair): pair is readonly [string, string] => pair[1] !== undefined)
+    .map(([flag, value]) => ` ${flag} ${shellQuote(value)}`)
+    .join("");
+  return `Run \`xcodebuild-axi test --without-building${carried}\` to run the tests just built`;
 }
 
 /**

@@ -276,11 +276,13 @@ function parseXcodebuild(args: string[]): {
   options: ParsedOption[];
   settings: string[];
   stray: string[];
+  ours: string[];
 } {
   const actions: string[] = [];
   const options: ParsedOption[] = [];
   const settings: string[] = [];
   const stray: string[] = [];
+  const ours: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const word = args[i] as string;
@@ -288,6 +290,21 @@ function parseXcodebuild(args: string[]): {
       actions.push(word);
     } else if (isSetting(word)) {
       settings.push(word);
+    } else if (word.startsWith("--")) {
+      // Two dashes is already this tool's spelling -- `build-for-testing
+      // --scheme MyApp` mixes an xcodebuild action with our flags -- so it
+      // passes through with its value rather than being judged unwrapped.
+      ours.push(word);
+      const next = args[i + 1];
+      if (
+        next !== undefined &&
+        !next.startsWith("-") &&
+        !isAction(next) &&
+        !isSetting(next)
+      ) {
+        ours.push(next);
+        i++;
+      }
     } else if (word.startsWith("-")) {
       const colon = word.indexOf(":");
       const bare = colon > 0 ? word.slice(0, colon) : word;
@@ -308,7 +325,7 @@ function parseXcodebuild(args: string[]): {
       stray.push(word);
     }
   }
-  return { actions, options, settings, stray };
+  return { actions, options, settings, stray, ours };
 }
 
 /**
@@ -321,7 +338,7 @@ export function translateXcodebuild(
   args: string[],
   forced?: string,
 ): Translation {
-  const { actions, options, settings, stray } = parseXcodebuild(args);
+  const { actions, options, settings, stray, ours } = parseXcodebuild(args);
   const notes: string[] = [];
   const unsupported: string[] = [];
 
@@ -406,6 +423,10 @@ export function translateXcodebuild(
 
   for (const setting of settings)
     parts.push(`--setting ${shellQuote(setting)}`);
+  const baseWords = base.split(/\s+/);
+  for (const word of ours) {
+    if (!baseWords.includes(word)) parts.push(shellQuote(word));
+  }
   for (const word of stray) unsupported.push(word);
 
   return { command: parts.join(" "), notes, unsupported };
