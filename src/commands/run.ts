@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import {
   BUILD_FLAG_HELP,
   reportAction,
-  resolveBuildContext,
+  resolveLockedContext,
   runAction,
   runLabel,
   SHARED_BUILD_FLAGS,
@@ -102,23 +102,32 @@ export async function runCommand(args: string[]): Promise<string> {
   const launchArgs = repeated(args, "--arg");
 
   const lock = deviceLockOptions(args);
-  const context = await resolveBuildContext({ args, command: "run" });
-  const target = await targetOf(context);
-  const udid =
-    target.kind === "mac" ? undefined : lockKey(context.destinationSpecifier);
-  const meta = {
-    device: context.destination ?? udid ?? "the simulator",
-    command: "run",
-    scheme: context.scheme,
-    project: context.project.path,
-  };
-
-  // Refused before the build rather than after it, so a busy device costs a
-  // second instead of a build. Under --wait the build goes ahead, and the
-  // wait overlaps it rather than coming first.
-  if (udid && lock.waitSeconds === undefined) {
-    await checkDevice({ udid, meta, options: lock });
-  }
+  const {
+    context,
+    claimed: { target, udid, meta },
+  } = await resolveLockedContext(
+    { args, command: "run", lock },
+    async (context) => {
+      const target = await targetOf(context);
+      const udid =
+        target.kind === "mac"
+          ? undefined
+          : lockKey(context.destinationSpecifier);
+      const meta = {
+        device: context.destination ?? udid ?? "the simulator",
+        command: "run",
+        scheme: context.scheme,
+        project: context.project.path,
+      };
+      // Refused before the build rather than after it, so a busy device costs
+      // a second instead of a build. Under --wait the build goes ahead, and
+      // the wait overlaps it rather than coming first.
+      if (udid && lock.waitSeconds === undefined) {
+        await checkDevice({ udid, meta, options: lock });
+      }
+      return { target, udid, meta };
+    },
+  );
 
   let build: Awaited<ReturnType<typeof runAction>> | undefined;
   if (!hasFlag(args, "--no-build")) {

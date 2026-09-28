@@ -260,9 +260,10 @@ help[3]:
 
 `--wait <secs>` queues behind the holder instead, printing one `waiting:` line
 on stderr. A run that picks its own simulator steers around a busy one rather
-than queueing for it. A raw `xcodebuild … test` against the same udid is
-noticed too, and named as such. `build` never locks — it installs nothing —
-and the `sim` verbs that would disturb a running app (`install`, `launch`,
+than queueing for it — including two runs started at the same moment, where
+the one that loses the race picks again. A raw `xcodebuild … test` against
+the same udid is noticed too, and named as such. `build` never locks — it
+installs nothing — and the `sim` verbs that would disturb a running app (`install`, `launch`,
 `terminate`, `erase`, …) check the lock without taking it.
 
 The lock is a file, so other tools can take part:

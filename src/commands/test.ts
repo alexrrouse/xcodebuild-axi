@@ -1,7 +1,7 @@
 import { AxiError, mapXcodebuildError } from "../errors.js";
 import {
   BUILD_FLAG_HELP,
-  resolveBuildContext,
+  resolveLockedContext,
   runAction,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
@@ -158,15 +158,17 @@ export async function testCommand(args: string[]): Promise<string> {
     hasFlag(args, "--without-building") ||
     getFlag(args, "--xctestrun") !== undefined;
   const lock = deviceLockOptions(args);
-  const context = await resolveBuildContext({ args, command: "test" });
   const coverage = hasFlag(args, "--coverage");
 
   // Held from before xcodebuild starts until it exits: the build half does
   // not touch the device, but the install that follows it does, and xcodebuild
   // offers no point in between to take the lock at.
-  const udid = lockKey(context.destinationSpecifier);
-  const release = udid
-    ? await acquireDevice({
+  const { context, claimed: release } = await resolveLockedContext(
+    { args, command: "test", lock },
+    async (context) => {
+      const udid = lockKey(context.destinationSpecifier);
+      if (!udid) return () => {};
+      return acquireDevice({
         udid,
         meta: {
           device: context.destination ?? udid,
@@ -175,8 +177,9 @@ export async function testCommand(args: string[]): Promise<string> {
           project: context.project.path,
         },
         options: lock,
-      })
-    : () => {};
+      });
+    },
+  );
 
   let run: BuildRun;
   try {

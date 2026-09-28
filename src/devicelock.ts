@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -113,9 +114,9 @@ export function lockKey(specifier: string | undefined): string | undefined {
   if (specifier === undefined || specifier.startsWith("generic/")) {
     return undefined;
   }
-  const platform = /(?:^|,)platform=([^,]+)/.exec(specifier)?.[1] ?? "";
+  const platform = /(?:^|,)\s*platform=([^,]+)/.exec(specifier)?.[1] ?? "";
   if (/macOS|DriverKit/i.test(platform)) return undefined;
-  const id = /(?:^|,)id=([^,]+)/.exec(specifier)?.[1]?.trim();
+  const id = /(?:^|,)\s*id=([^,]+)/.exec(specifier)?.[1]?.trim();
   if (!id || !/^[A-Za-z0-9-]+$/.test(id)) return undefined;
   return id.toUpperCase();
 }
@@ -138,6 +139,11 @@ function inherited(): string[] {
     .filter((udid) => udid.length > 0);
 }
 
+/** Held by the run this process was started from, so ours to use. */
+function heldByParent(udid: string): boolean {
+  return inherited().includes(udid);
+}
+
 /** An unparseable lock this young is a holder mid-write, not a stale file. */
 const UNREADABLE_GRACE_MS = 10_000;
 
@@ -154,7 +160,9 @@ function readLock(path: string, deps: LockDeps): Read {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { kind: "missing" };
     }
-    throw error;
+    // Unreadable (a directory, or another user's file): judged by its age
+    // like a half-written one, so one bad entry cannot stop every run.
+    text = "";
   }
   try {
     const parsed = JSON.parse(text) as Partial<LockRecord>;
@@ -183,6 +191,26 @@ export function holderAlive(record: LockRecord, deps: LockDeps): boolean {
   const started = deps.processStart(record.pid);
   if (started === undefined) return false;
   return record.pid_started === undefined || record.pid_started === started;
+}
+
+/**
+ * Who holds the lock read from `path`, or undefined when nobody does: a dead
+ * or reused pid, or a file too old to be a holder still writing it.
+ */
+function liveHolder(
+  read: Read,
+  path: string,
+  deps: LockDeps,
+): Holder | undefined {
+  if (read.kind === "record") {
+    return holderAlive(read.record, deps)
+      ? holderOf(read.record, path, deps)
+      : undefined;
+  }
+  if (read.kind === "unreadable" && read.ageMs < UNREADABLE_GRACE_MS) {
+    return { pid: 0, command: "unknown", lock: path };
+  }
+  return undefined;
 }
 
 function holderOf(record: LockRecord, path: string, deps: LockDeps): Holder {
@@ -224,7 +252,7 @@ export function tryAcquire(
   udid: string,
   meta: LockMeta,
 ): Attempt {
-  if (inherited().includes(udid)) return { release: () => {} };
+  if (heldByParent(udid)) return { release: () => {} };
 
   mkdirSync(deps.dir, { recursive: true });
   const path = lockPath(deps.dir, udid);
@@ -255,13 +283,8 @@ export function tryAcquire(
 
       const current = readLock(path, deps);
       if (current.kind === "missing") continue;
-      if (current.kind === "unreadable") {
-        if (current.ageMs < UNREADABLE_GRACE_MS) {
-          return { holder: { pid: 0, command: "unknown", lock: path } };
-        }
-      } else if (holderAlive(current.record, deps)) {
-        return { holder: holderOf(current.record, path, deps) };
-      }
+      const holder = liveHolder(current, path, deps);
+      if (holder) return { holder };
 
       const grave = `${path}.stale.${deps.pid}`;
       try {
@@ -277,7 +300,7 @@ export function tryAcquire(
             buried.record.started === current.record.started
           : buried.kind === "unreadable";
       if (same) {
-        unlinkSync(grave);
+        bury(grave);
         continue;
       }
       try {
@@ -285,7 +308,7 @@ export function tryAcquire(
       } catch {
         // Someone else already holds it again; theirs stands.
       }
-      unlinkSync(grave);
+      bury(grave);
       if (buried.kind === "record") {
         return { holder: holderOf(buried.record, path, deps) };
       }
@@ -304,6 +327,11 @@ export function tryAcquire(
       // already gone
     }
   }
+}
+
+/** Remove a stale lock set aside, whatever it turned out to be. */
+function bury(grave: string): void {
+  rmSync(grave, { recursive: true, force: true });
 }
 
 /**
@@ -332,7 +360,10 @@ function releaser(path: string, own: LockRecord): () => void {
   return release;
 }
 
-/** Every udid whose lock is held by a live process. */
+/**
+ * Every udid whose lock is held by a live process, other than the ones this
+ * process's parent run holds -- a scheme pre-action's run belongs on those.
+ */
 export function heldUdids(deps: LockDeps): Set<string> {
   const held = new Set<string>();
   let entries: string[];
@@ -343,13 +374,10 @@ export function heldUdids(deps: LockDeps): Set<string> {
   }
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const read = readLock(join(deps.dir, entry), deps);
-    if (
-      (read.kind === "record" && holderAlive(read.record, deps)) ||
-      (read.kind === "unreadable" && read.ageMs < UNREADABLE_GRACE_MS)
-    ) {
-      held.add(basename(entry, ".json").toUpperCase());
-    }
+    const udid = basename(entry, ".json").toUpperCase();
+    if (heldByParent(udid)) continue;
+    const path = join(deps.dir, entry);
+    if (liveHolder(readLock(path, deps), path, deps)) held.add(udid);
   }
   return held;
 }
@@ -391,7 +419,8 @@ export function parsePs(text: string): PsRow[] {
  * xcodebuild processes testing on `udid` that are not this run.
  *
  * Only a test action naming the udid: a build against the same destination
- * installs nothing, and a `name=` specifier cannot be pinned to one device.
+ * installs nothing, `-enumerate-tests` (what `tests` runs) stops before
+ * installing, and a `name=` specifier cannot be pinned to one device.
  * Our own descendants are this run's xcodebuild. `/usr/bin/xcodebuild` is a
  * shim that execs the real binary as its child, so a pair is one contender,
  * reported as the outer process.
@@ -423,6 +452,7 @@ export function findContenders(
     if (at < 0) return false;
     const after = lower[at + 3 + id.length];
     if (after !== undefined && !/[,\s"']/.test(after)) return false;
+    if (/\s-enumerate-tests(?:\s|$)/.test(row.command)) return false;
     return /(?:^|\s)(?:test|test-without-building)(?:\s|$)/.test(row.command);
   });
   const pids = new Set(candidates.map((row) => row.pid));
@@ -479,21 +509,33 @@ export interface GuardOptions {
   deps?: LockDeps;
 }
 
+/** A device someone else has, and who. */
+interface Busy {
+  udid: string;
+  device: string;
+  holder: Holder;
+}
+
+type Claim = { release: () => void } | { busy: Busy };
+
 /**
  * Take the device for this run, waiting if asked, or refuse naming who has it.
  * Returns the release, which the caller runs in a `finally`.
  */
 export async function acquireDevice(guard: GuardOptions): Promise<() => void> {
-  if (guard.options.skip) return () => {};
+  if (guard.options.skip || heldByParent(guard.udid)) return () => {};
   const deps = guard.deps ?? defaultDeps();
+  const busy = (holder: Holder): Claim => ({
+    busy: { udid: guard.udid, device: guard.meta.device, holder },
+  });
 
-  return pollDevice(guard, deps, () => {
+  return pollDevice(guard.meta.command, guard.options, deps, () => {
     const attempt = tryAcquire(deps, guard.udid, guard.meta);
-    if ("holder" in attempt) return attempt;
+    if ("holder" in attempt) return busy(attempt.holder);
     const [raw] = findContenders(parsePs(deps.psList()), guard.udid, deps.pid);
     if (raw) {
       attempt.release();
-      return { holder: raw };
+      return busy(raw);
     }
     // Exported so a scheme pre-action's xcodebuild-axi sees the device is
     // this run's; withdrawn with the lock.
@@ -515,49 +557,68 @@ export async function acquireDevice(guard: GuardOptions): Promise<() => void> {
  * call would only make two quick commands refuse each other.
  */
 export async function checkDevice(guard: GuardOptions): Promise<void> {
-  if (guard.options.skip) return;
-  const deps = guard.deps ?? defaultDeps();
-  if (inherited().includes(guard.udid)) return;
+  await checkDevices(
+    [{ udid: guard.udid, device: guard.meta.device }],
+    guard.meta.command,
+    guard.options,
+    guard.deps,
+  );
+}
 
-  await pollDevice(guard, deps, () => {
-    const path = lockPath(deps.dir, guard.udid);
-    const read = readLock(path, deps);
-    if (read.kind === "record" && holderAlive(read.record, deps)) {
-      return { holder: holderOf(read.record, path, deps) };
+/**
+ * `checkDevice` for a blanket change -- `sim shutdown --all` -- over every
+ * device it would touch: one `ps` per look rather than one per device, and
+ * one `--wait` covering them all.
+ */
+export async function checkDevices(
+  devices: { udid: string; device: string }[],
+  command: string,
+  options: DeviceLockOptions,
+  lockDeps?: LockDeps,
+): Promise<void> {
+  if (options.skip) return;
+  const mine = devices.filter((device) => !heldByParent(device.udid));
+  if (mine.length === 0) return;
+  const deps = lockDeps ?? defaultDeps();
+
+  await pollDevice(command, options, deps, () => {
+    for (const { udid, device } of mine) {
+      const path = lockPath(deps.dir, udid);
+      const holder = liveHolder(readLock(path, deps), path, deps);
+      if (holder) return { busy: { udid, device, holder } };
     }
-    if (read.kind === "unreadable" && read.ageMs < UNREADABLE_GRACE_MS) {
-      return { holder: { pid: 0, command: "unknown", lock: path } };
+    const rows = parsePs(deps.psList());
+    for (const { udid, device } of mine) {
+      const [raw] = findContenders(rows, udid, deps.pid);
+      if (raw) return { busy: { udid, device, holder: raw } };
     }
-    const [raw] = findContenders(parsePs(deps.psList()), guard.udid, deps.pid);
-    return raw ? { holder: raw } : { release: () => {} };
+    return { release: () => {} };
   });
 }
 
 async function pollDevice(
-  guard: GuardOptions,
+  command: string,
+  options: DeviceLockOptions,
   deps: LockDeps,
-  attempt: () => Attempt,
+  attempt: () => Claim,
 ): Promise<() => void> {
   const started = deps.now();
   const reported = new Set<number>();
   for (;;) {
     const result = attempt();
     if ("release" in result) return result.release;
+    const { busy } = result;
 
     const waitedMs = deps.now() - started;
-    const wait = guard.options.waitSeconds;
+    const wait = options.waitSeconds;
     if (wait === undefined || waitedMs >= wait * 1000) {
-      throw busyError(
-        guard,
-        result.holder,
-        wait === undefined ? undefined : waitedMs,
-      );
+      throw busyError(command, busy, wait === undefined ? undefined : waitedMs);
     }
-    if (!reported.has(result.holder.pid)) {
-      reported.add(result.holder.pid);
+    if (!reported.has(busy.holder.pid)) {
+      reported.add(busy.holder.pid);
       say(
         deps.progress,
-        `${renderFields({ waiting: `${guard.meta.device} — held by ${describeHolder(result.holder)}` })}\n`,
+        `${renderFields({ waiting: `${busy.device} — held by ${describeHolder(busy.holder)}` })}\n`,
       );
     }
     await deps.sleep(Math.min(POLL_MS, wait * 1000 - waitedMs));
@@ -581,14 +642,14 @@ function describeHolder(holder: Holder): string {
 }
 
 function busyError(
-  guard: GuardOptions,
-  holder: Holder,
+  command: string,
+  { udid, device, holder }: Busy,
   waitedMs: number | undefined,
 ): DeviceBusyError {
   return new DeviceBusyError(
-    `${guard.meta.device} is in use by another run`,
+    `${device} is in use by another run`,
     {
-      udid: guard.udid,
+      udid,
       holder: {
         pid: holder.pid,
         command: holder.command,
@@ -603,7 +664,7 @@ function busyError(
     },
     [
       "Add `--wait 900` to wait up to 15 minutes for it",
-      guard.meta.command.startsWith("sim ")
+      command.startsWith("sim ")
         ? "Run `xcodebuild-axi sim list` to pick another simulator"
         : "Pass `--device <name>` for another simulator",
       "`--no-device-lock` goes ahead anyway, and the two runs will overwrite each other's installs",

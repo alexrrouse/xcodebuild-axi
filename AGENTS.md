@@ -421,7 +421,9 @@ Decisions that are not obvious from the code:
 - **Staleness is pid plus start time.** A dead pid is stale; so is a live pid
   whose `ps -o lstart=` differs from the one recorded, which is pid reuse. A
   lock carrying only a `pid` — another tool's — is honoured while that pid
-  lives. There are no signal handlers: `process.once("exit")` removes the
+  lives. A lock that cannot be read at all (a directory, another user's file)
+  is judged by its age like a half-written one, rather than failing every
+  run. There are no signal handlers: `process.once("exit")` removes the
   lock, and a `kill -9` leaves one that the next run sees is stale.
 - **Raw xcodebuild is caught by a `ps -axww` scan**, after acquiring. Only a
   `test`/`test-without-building` naming the udid counts — a build installs
@@ -433,14 +435,28 @@ Decisions that are not obvious from the code:
   touches no simulator, but checks it before building so a busy device is not
   discovered after a two-minute compile. With `--wait` it skips the check and
   queues at install instead.
+- **A default pick that loses a race picks again.** The default destination
+  skips held simulators, but two runs started together both see the same one
+  free. `resolveLockedContext` re-resolves the loser without it, once per
+  device, so it lands on a free simulator instead of being refused. A device
+  named with `--device` or `--destination`, or one `--wait` was asked to queue
+  for, is never swapped.
 - **`sim` verbs check without holding.** `install`, `launch`, `terminate`,
   `erase` and the rest are one-shot and disturb a running app; `boot` does not
-  and is not checked. Holding for a single `simctl` call would only race.
+  and is not checked. Holding for a single `simctl` call would only race. The
+  check runs inside each verb after its own validation, so a usage error is
+  still answered first and the simulator is resolved once. `--all` forms check
+  every device they would touch with a single `ps`; `erase --all` is not
+  checked, since simctl erases only shut-down devices and a device under test
+  is booted.
 - **`tests` takes no lock.** Its `-enumerate-tests` run passes the `test`
-  action, but its log shows no install, launch or boot.
+  action, but its log shows no install, launch or boot — which is also why the
+  `ps` scan ignores an xcodebuild carrying `-enumerate-tests`.
 - **`XCODEBUILD_AXI_HELD_DEVICES`** is set while `test` holds a device, so an
   `xcodebuild-axi` call from a scheme's pre-action sees the lock as its own
-  run's rather than refusing it.
+  run's. That has to skip the `ps` scan as well as the lock file — the parent's
+  xcodebuild is testing on that udid and is not our descendant — and has to
+  keep the default pick from steering away from it.
 - **The lock does not cover every contention.** The issue that asked for it
   also reported `settings --for-index` and `packages --resolve` colliding with
   a test run; neither touches a simulator, so no device lock would have

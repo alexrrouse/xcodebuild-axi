@@ -9,11 +9,10 @@ import { parseAppSettings } from "./settings.js";
 import { simSubcommandRedirect } from "../redirect.js";
 import {
   checkDevice,
-  defaultDeps,
+  checkDevices,
   DEVICE_LOCK_FLAGS,
   DEVICE_LOCK_VALUE_FLAGS,
   deviceLockOptions,
-  heldUdids,
 } from "../devicelock.js";
 import {
   findDeviceType,
@@ -172,9 +171,8 @@ export async function simCommand(args: string[]): Promise<string> {
   const words = positionals(args, VALUE_FLAGS);
   const [subcommand, target, app, extra] = words;
 
-  if (subcommand !== undefined && LOCK_CHECKED.has(subcommand)) {
-    await guardDevice(args, subcommand, target);
-  }
+  // Parsed up front so a bad --wait is refused whichever verb it came with.
+  deviceLockOptions(args);
 
   switch (subcommand ?? "booted") {
     case "booted":
@@ -306,53 +304,41 @@ async function listAll(args: string[]): Promise<string> {
 const EXPLICIT_ONLY = new Set(["boot", "shutdown", "erase", "delete"]);
 
 /**
- * The verbs that would replace or kill what another run is testing: a
- * reinstall swaps its app out, a terminate or a permission change (simctl
- * kills the app to apply one) ends it, and a shutdown or erase takes the
- * device away. Each checks the device lock without taking it -- holding one
- * for a one-second simctl call would only make two quick commands refuse
- * each other.
+ * Refuse, or wait, while a test or run holds the simulator. Called by the
+ * verbs that would replace or kill what that run is testing -- a reinstall
+ * swaps its app out, a terminate or a permission change (simctl kills the
+ * app to apply one) ends it, a shutdown, erase or delete takes the device
+ * away -- after their own checks, so a usage error is still answered first.
+ * The lock is checked, not taken: holding one for a one-second simctl call
+ * would only make two quick commands refuse each other. `boot` disturbs
+ * nothing and is not checked.
  */
-const LOCK_CHECKED = new Set([
-  "install",
-  "uninstall",
-  "launch",
-  "terminate",
-  "privacy",
-  "shutdown",
-  "erase",
-  "delete",
-]);
-
-async function guardDevice(
+async function guard(
   args: string[],
   verb: string,
-  target: string | undefined,
+  simulator: Simulator,
 ): Promise<void> {
-  const options = deviceLockOptions(args);
-  if (options.skip || hasFlag(args, "--unavailable")) return;
-
-  if (hasFlag(args, "--all")) {
-    const simulators = await listSimulators();
-    for (const udid of heldUdids(defaultDeps())) {
-      const simulator = simulators.find(
-        (candidate) => candidate.udid.toUpperCase() === udid,
-      );
-      await checkDevice({
-        udid,
-        meta: { device: simulator?.name ?? udid, command: `sim ${verb}` },
-        options,
-      });
-    }
-    return;
-  }
-
-  const simulator = await resolveTarget(target, verb);
   await checkDevice({
     udid: simulator.udid.toUpperCase(),
     meta: { device: simulator.name, command: `sim ${verb}` },
-    options,
+    options: deviceLockOptions(args),
   });
+}
+
+/** `guard` for an `--all` verb, over every simulator it would touch. */
+async function guardAll(
+  args: string[],
+  verb: string,
+  simulators: Simulator[],
+): Promise<void> {
+  await checkDevices(
+    simulators.map((simulator) => ({
+      udid: simulator.udid.toUpperCase(),
+      device: simulator.name,
+    })),
+    `sim ${verb}`,
+    deviceLockOptions(args),
+  );
 }
 
 async function resolveTarget(
@@ -440,6 +426,7 @@ async function shutdown(
     if (booted.length === 0) {
       return renderFields({ sim: "0 simulators were running (no-op)" });
     }
+    await guardAll(args, "shutdown", booted);
     await simctl(["shutdown", "all"]);
     return renderFields({
       sim: `${booted.length} shut down`,
@@ -451,6 +438,7 @@ async function shutdown(
   if (simulator.state !== "booted") {
     return renderFields({ sim: `${simulator.name} already shut down (no-op)` });
   }
+  await guard(args, "shutdown", simulator);
 
   const { exitCode, stderr } = await simctl(["shutdown", simulator.udid]);
   if (exitCode !== 0 && !/current state: Shutdown/i.test(stderr)) {
@@ -476,6 +464,7 @@ async function erase(
   }
 
   const simulator = await resolveTarget(target, "erase");
+  await guard(args, "erase", simulator);
   const { exitCode, stderr } = await simctl(["erase", simulator.udid]);
   if (exitCode !== 0) {
     // simctl refuses to erase a running device; that is a real precondition,
@@ -560,6 +549,7 @@ async function install(
   app: string | undefined,
 ): Promise<string> {
   const simulator = await requireBooted(target, "install");
+  await guard(args, "install", simulator);
   const path = app
     ? resolve(app)
     : (await productOf(args, simulator, "install")).appPath;
@@ -596,6 +586,7 @@ async function launch(
   app: string | undefined,
 ): Promise<string> {
   const simulator = await requireBooted(target, "launch");
+  await guard(args, "launch", simulator);
   const bundleId = app ?? (await productOf(args, simulator, "launch")).bundleId;
 
   const { stdout, stderr, exitCode } = await simctl([
@@ -649,6 +640,7 @@ async function terminate(
   app: string | undefined,
 ): Promise<string> {
   const simulator = await requireBooted(target, "terminate");
+  await guard(args, "terminate", simulator);
   const bundleId =
     app ?? (await productOf(args, simulator, "terminate")).bundleId;
 
@@ -680,6 +672,7 @@ async function uninstall(
   app: string | undefined,
 ): Promise<string> {
   const simulator = await requireBooted(target, "uninstall");
+  await guard(args, "uninstall", simulator);
   const bundleId =
     app ?? (await productOf(args, simulator, "uninstall")).bundleId;
 
@@ -802,6 +795,7 @@ async function remove(
       );
     }
     const all = await listSimulators();
+    await guardAll(args, "delete", all);
     const { exitCode, stderr } = await simctl(["delete", "all"]);
     if (exitCode !== 0) {
       throw new AxiError("Could not delete the simulators", "UNKNOWN", [
@@ -812,6 +806,7 @@ async function remove(
   }
 
   const simulator = await resolveTarget(target, "delete");
+  await guard(args, "delete", simulator);
   const { exitCode, stderr } = await simctl(["delete", simulator.udid]);
   if (exitCode !== 0) {
     throw new AxiError(`Could not delete ${simulator.name}`, "UNKNOWN", [
@@ -1412,6 +1407,8 @@ async function privacy(
       [`services: ${PRIVACY_SERVICES.join(", ")}`],
     );
   }
+
+  await guard(args, "privacy", simulator);
 
   // `reset` is the one action simctl takes without an app, and resetting
   // every app's permissions is a different thing from resetting one app's.
