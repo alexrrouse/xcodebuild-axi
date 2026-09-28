@@ -447,12 +447,40 @@ export function isGenericFailure(diagnostic: { message?: string }): boolean {
 }
 
 /**
- * How many errors a build bundle has that say something -- not counting the
- * generic exit-code row, which says only that xcodebuild gave up.
+ * The row a test run's bundle adds when the build under it failed. It only
+ * restates the failure, and it comes first, so on its own it pushed the cause
+ * down the list -- behind a `--max-errors` cut, or out of a glance.
  */
+export function isTestingCancelled(issue: { message?: string }): boolean {
+  return /^Testing cancelled because the build failed\.?$/.test(
+    (issue.message ?? "").trim(),
+  );
+}
+
+/**
+ * A row that says only that something failed, not why: the generic exit-code
+ * row, or the "Testing cancelled" restatement. A bundle holding nothing else
+ * has no diagnosis in it, and the transcript is the only witness.
+ */
+export function isRestatement(issue: { message?: string }): boolean {
+  return isGenericFailure(issue) || isTestingCancelled(issue);
+}
+
+/**
+ * A bundle's errors without the restatements, when there is a cause to show
+ * instead. With no cause they stay, so a failed bundle never reads as having
+ * nothing to say.
+ */
+export function meaningfulErrors(issues: RawIssue[] | undefined): RawIssue[] {
+  const all = issues ?? [];
+  const causes = all.filter((issue) => !isRestatement(issue));
+  return causes.length > 0 ? causes : all;
+}
+
+/** How many errors a build bundle has that say why it failed. */
 export function buildErrorCount(build: BuildResults): number {
   return build.errors
-    ? build.errors.filter((issue) => !isGenericFailure(issue)).length
+    ? build.errors.filter((issue) => !isRestatement(issue)).length
     : (build.errorCount ?? 0);
 }
 

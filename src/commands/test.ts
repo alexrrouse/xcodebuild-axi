@@ -5,10 +5,14 @@ import {
   runAction,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
+  buildFailureHints,
   subjectField,
   type BuildContext,
 } from "../action.js";
 import {
+  isRestatement,
+  isTestingCancelled,
+  meaningfulErrors,
   readBuildResults,
   readTests,
   readTestSummary,
@@ -326,9 +330,11 @@ async function renderTestsNeverRan(
   run: BuildRun,
 ): Promise<string> {
   const results = await readBuildResults(run.resultPath).catch(() => undefined);
-  const errors = toDiagnostics(results?.errors);
+  const errors = toDiagnostics(meaningfulErrors(results?.errors));
 
-  if (errors.length === 0) {
+  // A restatement alone is no diagnosis; the transcript may have one.
+  const unexplained = errors.every(isRestatement);
+  if (unexplained) {
     const mapped = mapXcodebuildError(run.tail);
     if (mapped) {
       throw new AxiError(mapped.message, mapped.code, [
@@ -349,9 +355,8 @@ async function renderTestsNeverRan(
   ];
 
   const errorBlock = diagnosticsBlock("errors", errors, context.maxErrors);
-  if (errorBlock.block) {
-    blocks.push(errorBlock.block);
-  } else {
+  if (errorBlock.block) blocks.push(errorBlock.block);
+  if (unexplained) {
     const tail = transcriptTail(run.tail);
     if (tail) blocks.push(tail);
   }
@@ -362,6 +367,13 @@ async function renderTestsNeverRan(
       result: tildePath(run.resultPath),
     }),
   );
+  const hints = buildFailureHints({
+    command: "test",
+    errors,
+    hidden: errorBlock.hidden,
+    tail: run.tail,
+  });
+  if (hints.length > 0) blocks.push(renderHelp(hints));
   process.exitCode = 1;
   return renderOutput(blocks);
 }
@@ -518,8 +530,12 @@ export function testsNeverRan(
 ): boolean {
   if (!summary || summary.totalTestCount === undefined) return true;
   if (summary.totalTestCount > 0) return false;
+  // xcodebuild's own "Testing cancelled because the build failed." says so
+  // outright, whatever the cause was filed as.
   return (build?.errors ?? []).some(
-    (issue) => (issue.issueType ?? "").toLowerCase() !== "uncategorized",
+    (issue) =>
+      isTestingCancelled(issue) ||
+      (issue.issueType ?? "").toLowerCase() !== "uncategorized",
   );
 }
 

@@ -48,6 +48,7 @@ import {
   type TestActivities,
   type TestTree,
   buildStatus,
+  meaningfulErrors,
 } from "../xcresult.js";
 import { diagnosticsBlock, failureRows } from "../report.js";
 import {
@@ -233,7 +234,7 @@ export async function resultCommand(args: string[]): Promise<string> {
   }
 
   if (build) {
-    const errors = toDiagnostics(build.errors);
+    const errors = toDiagnostics(meaningfulErrors(build.errors));
     const warnings = toDiagnostics([
       ...(build.warnings ?? []),
       ...(build.analyzerWarnings ?? []),

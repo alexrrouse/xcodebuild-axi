@@ -5,6 +5,9 @@ import {
   relativize,
   toDiagnostics,
   describeDevice,
+  buildErrorCount,
+  isRestatement,
+  meaningfulErrors,
 } from "../src/xcresult.js";
 
 describe("parseSourceURL", () => {
@@ -217,5 +220,51 @@ describe("failureLocation", () => {
       failureLocation({ testRuns: [{ nodeType: "Device", name: "x" }] }),
     ).toEqual({ file: "", line: "" });
     expect(failureLocation({})).toEqual({ file: "", line: "" });
+  });
+});
+
+describe("meaningfulErrors", () => {
+  const CANCELLED = {
+    issueType: "Uncategorized",
+    message: "Testing cancelled because the build failed.",
+  };
+  const GENERIC = { message: "xcodebuild encountered an error (65)" };
+  const CAUSE = {
+    issueType: "Error",
+    message:
+      "Build input file cannot be found: '/tmp/MyApp/Sources/Checkout.swift'. Did you forget to declare this file as an output of a script phase or custom build rule which produces it?",
+  };
+
+  // Issue #38: the restatement came first, ahead of the cause.
+  it("drops the rows that only say something failed when a cause is there", () => {
+    expect(meaningfulErrors([CANCELLED, CAUSE])).toEqual([CAUSE]);
+    expect(meaningfulErrors([GENERIC, CAUSE])).toEqual([CAUSE]);
+  });
+
+  it("keeps them when there is nothing else to say", () => {
+    expect(meaningfulErrors([CANCELLED])).toEqual([CANCELLED]);
+    expect(meaningfulErrors([GENERIC])).toEqual([GENERIC]);
+    expect(meaningfulErrors(undefined)).toEqual([]);
+  });
+
+  it("counts only errors that say something", () => {
+    expect(buildErrorCount({ errors: [CANCELLED, CAUSE] })).toBe(1);
+    expect(buildErrorCount({ errors: [CANCELLED] })).toBe(0);
+    expect(buildErrorCount({ errors: [GENERIC] })).toBe(0);
+    expect(buildErrorCount({ errorCount: 3 })).toBe(3);
+  });
+});
+
+describe("isRestatement", () => {
+  it("is true only for rows that say something failed but not why", () => {
+    expect(
+      isRestatement({ message: "Testing cancelled because the build failed." }),
+    ).toBe(true);
+    expect(
+      isRestatement({ message: "xcodebuild encountered an error (65)" }),
+    ).toBe(true);
+    expect(isRestatement({ message: "Cannot find 'total' in scope" })).toBe(
+      false,
+    );
   });
 });

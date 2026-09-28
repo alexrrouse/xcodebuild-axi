@@ -31,6 +31,13 @@ attachments` with no bundle path copied in between. Reads only a test run can
 
 ### Fixed
 
+- **When the build under `test` fails, its cause comes first.** The bundle
+  lists xcodebuild's "Testing cancelled because the build failed." ahead of
+  the reason — a locked build database, a source file that is gone — and
+  that row is now dropped whenever a cause is there to show, in `test`,
+  `result` and the home view's error count. A locked build database also
+  suggests a DerivedData of the run's own, on `build` as well as `test`.
+  Closes #38.
 - **The home view says whether the last build worked.** A build, analyze,
   archive or clean reads `build succeeded`, `build failed (2 errors)` or
   `build failed before building` instead of the bare command name, and one
