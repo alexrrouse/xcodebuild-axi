@@ -55,7 +55,7 @@ note:
   --lines reads the archive rather than the report: the report knows what
   percentage of a file ran, the archive knows how many times each line did.
 examples:
-  xcodebuild-axi coverage ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-test.xcresult
+  xcodebuild-axi coverage ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-26-5-test-4821.xcresult
   xcodebuild-axi coverage build/MyApp.xcresult --files --below 50
   xcodebuild-axi coverage build/MyApp.xcresult --functions Checkout.swift
   xcodebuild-axi coverage build/MyApp.xcresult --against build/baseline.xcresult

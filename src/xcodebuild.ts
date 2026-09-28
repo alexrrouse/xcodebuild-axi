@@ -1,8 +1,19 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream, mkdirSync, rmSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import {
+  pruneRuns,
+  RUN_ARTIFACT_SUFFIXES,
+  runStem,
+  runStillGoing,
+} from "./bundles.js";
 import { AxiError, xcodeNotInstalledError } from "./errors.js";
 import type { ProjectContext } from "./context.js";
 import { renderFields, tildePath } from "./toon.js";
@@ -76,14 +87,86 @@ export interface BuildRun {
   tail: string;
 }
 
-export interface BuildRunOptions {
-  args: string[];
-  /** Filename stem for the log and result bundle, e.g. "MyApp-iPhone-17-Pro". */
+/** Where one run writes, e.g. `.../MyApp-iPhone-17-Pro-26-5-test-4821.log`. */
+export interface RunArtifacts {
+  dir: string;
+  /** Shared by everything the run writes, and by nothing another run does. */
+  stem: string;
+  logPath: string;
+  resultPath: string;
+}
+
+export interface RunPlacement {
+  /** What the run is, e.g. "MyApp-iPhone-17-Pro-26-5-test". Not unique. */
   label: string;
   /** Omit for invocations that act on the toolchain rather than a project. */
   project?: ProjectContext;
-  /** Overrides the cache location for both artifacts. */
+  /** Overrides the cache location for every artifact. */
   outDir?: string;
+}
+
+/**
+ * Claim a log and result bundle path no other run holds, after clearing out
+ * older finished runs of the same label.
+ *
+ * Every run used to be handed `<label>.log` and `<label>.xcresult`, and cleared
+ * the bundle first because xcodebuild refuses to write over one. A run that
+ * outlived its tests then had its bundle deleted and its log truncated by the
+ * next run of the same scheme and device, and reported that run's counts as
+ * its own. Now the stem is claimed and a bundle path is never reused.
+ *
+ * A directory the caller named with `--artifacts-dir` is theirs: nothing in
+ * it is pruned, since a CI job that runs three test plans and uploads at the
+ * end wants all three. Only the cache is housekept.
+ *
+ * For a caller that writes something beside the log -- `tests`' enumeration,
+ * `run`'s console -- so it can share the run's stem.
+ */
+export function prepareRun(placement: RunPlacement): RunArtifacts {
+  const dir =
+    placement.outDir ??
+    (placement.project ? artifactDir(placement.project) : globalArtifactDir());
+  mkdirSync(dir, { recursive: true });
+  if (placement.outDir === undefined) pruneArtifacts(dir, placement.label);
+
+  const stem = claimStem(dir, placement.label, ".log");
+  return {
+    dir,
+    stem,
+    logPath: join(dir, `${stem}.log`),
+    resultPath: join(dir, `${stem}.xcresult`),
+  };
+}
+
+/**
+ * The first `runStem` of `label` in `dir` that no file uses yet, claimed by
+ * creating `<stem><suffix>` exclusively -- so neither two runs in one
+ * process, nor a run given a pid a finished one used, can both take it.
+ */
+export function claimStem(dir: string, label: string, suffix: string): string {
+  for (let n = 1; ; n += 1) {
+    const stem = runStem(label, process.pid, n);
+    const taken = RUN_ARTIFACT_SUFFIXES.some((end) =>
+      existsSync(join(dir, stem + end)),
+    );
+    if (taken) continue;
+    try {
+      writeFileSync(join(dir, stem + suffix), "", { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      throw error;
+    }
+    return stem;
+  }
+}
+
+/** `pruneRuns`, taking each removed bundle's exports with it. */
+export function pruneArtifacts(dir: string, label: string): string[] {
+  return pruneRuns(dir, label, { alive: runStillGoing, exportRoot });
+}
+
+interface BuildRunCommon {
+  args: string[];
   /** Tee the transcript to `progress` as it arrives, as well as to the log. */
   live?: boolean;
   /** Where the log path and a live transcript go. Default: stderr. */
@@ -91,6 +174,10 @@ export interface BuildRunOptions {
   /** How long a run goes before its log path is announced. */
   announceAfterMs?: number;
 }
+
+/** A placement for `runBuild` to claim paths in, or paths already claimed. */
+export type BuildRunOptions = BuildRunCommon &
+  (RunPlacement | { artifacts: RunArtifacts });
 
 /**
  * Past this, a run announces where its log is, so a wedged one can be tailed
@@ -120,19 +207,10 @@ export const PROGRESS_BACKLOG_BYTES = 8 * 1024 * 1024;
  * `progress`, which is stderr, so stdout is the same with or without it.
  */
 export function runBuild(options: BuildRunOptions): Promise<BuildRun> {
-  const dir =
-    options.outDir ??
-    (options.project ? artifactDir(options.project) : globalArtifactDir());
-  mkdirSync(dir, { recursive: true });
-
-  const logPath = join(dir, `${options.label}.log`);
-  const resultPath = join(dir, `${options.label}.xcresult`);
-
-  // xcodebuild refuses to write over an existing result bundle and dies before
-  // running anything — "error: Existing file at -resultBundlePath". The bundle
-  // is our artifact, not the user's, so clear it rather than make every caller
-  // remember to.
-  rmSync(resultPath, { recursive: true, force: true });
+  // The paths are this run's alone, so there is nothing to clear: xcodebuild
+  // refuses an existing result bundle, and none can exist at a claimed path.
+  const { logPath, resultPath } =
+    "artifacts" in options ? options.artifacts : prepareRun(options);
 
   const args = [...options.args, "-resultBundlePath", resultPath];
   const started = Date.now();
@@ -345,6 +423,11 @@ export function artifactDir(project: ProjectContext): string {
  * not be dirtied by asking what is in it.
  */
 export function exportDir(bundlePath: string, kind: string): string {
+  return join(exportRoot(bundlePath), kind);
+}
+
+/** Everything exported out of one bundle, of every kind -- pruned with it. */
+export function exportRoot(bundlePath: string): string {
   const hash = createHash("sha256")
     .update(bundlePath)
     .digest("hex")
@@ -357,7 +440,6 @@ export function exportDir(bundlePath: string, kind: string): string {
     "xcodebuild-axi",
     "exports",
     `${stem}-${hash}`,
-    kind,
   );
 }
 

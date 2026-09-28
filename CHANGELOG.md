@@ -31,9 +31,18 @@ attachments` with no bundle path copied in between. Reads only a test run can
 
 ### Fixed
 
+- **Two runs of one scheme and device no longer share a log and result
+  bundle.** A run that outlived its tests had its bundle deleted and its log
+  truncated by the next run of the same pair, then reported that run's counts
+  as its own. Each run now writes `<scheme>-<device>-<command>-<pid>`, and
+  starts by clearing older finished runs of the same kind from the cache —
+  keeping the previous one, and any still running — so it stays bounded.
+  `--artifacts-dir` is never pruned. `tests`'
+  enumeration and `run`'s console are named per run the same way. A script
+  that hardcoded a filename under `--artifacts-dir` should read the report's
+  `result:` field instead. Closes #35.
 - **A second `result --export` of the same bundle no longer reports the first
-  one's files.** The default export directory is reused across runs of the same
-  scheme and device, and is now cleared before writing.
+  one's files.** The default export directory is now cleared before writing.
 - **`result --against` refuses to compare a bundle with itself**, which
   reported every count as unchanged.
 

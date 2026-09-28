@@ -3,14 +3,13 @@ import { join } from "node:path";
 import { AxiError, mapXcodebuildError } from "../errors.js";
 import {
   BUILD_FLAG_HELP,
+  prepareAction,
   resolveBuildContext,
   runAction,
-  runLabel,
   SHARED_BUILD_FLAGS,
   SHARED_BUILD_VALUE_FLAGS,
   subjectField,
 } from "../action.js";
-import { artifactDir } from "../xcodebuild.js";
 import {
   duration,
   renderFields,
@@ -80,19 +79,16 @@ export async function testsCommand(args: string[]): Promise<string> {
   rejectUnknownFlags(args, "tests", TESTS_FLAGS, VALUE_FLAGS);
 
   const context = await resolveBuildContext({ args, command: "tests" });
-  const outputPath = join(
-    artifactDir(context.project),
-    `${runLabel(context, "tests")}.json`,
-  );
+  // Named for this run, like its log: a second enumeration of the same scheme
+  // would otherwise clear this one's file mid-run, or append to it.
+  const artifacts = prepareAction(context, "tests");
+  const outputPath = join(artifacts.dir, `${artifacts.stem}.json`);
   const testPlan = getFlag(args, "--test-plan");
-
-  // xcodebuild appends to an existing enumeration file rather than replacing
-  // it, so a stale one from a previous scheme would silently pad the list.
-  rmSync(outputPath, { force: true });
 
   const run = await runAction({
     context,
     command: "tests",
+    artifacts,
     // -enumerate-tests only takes effect alongside the `test` action; without
     // it xcodebuild builds for testing and writes no enumeration at all.
     actions: ["test"],
@@ -111,6 +107,8 @@ export async function testsCommand(args: string[]): Promise<string> {
   });
 
   const parsed = readEnumeration(outputPath);
+  // Read once and never shown, so there is nothing to keep it for.
+  rmSync(outputPath, { force: true });
   if (!parsed) {
     const mapped = mapXcodebuildError(run.tail);
     throw new AxiError(

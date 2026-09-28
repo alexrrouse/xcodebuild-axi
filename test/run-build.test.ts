@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chmodSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -10,7 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
-import { PROGRESS_BACKLOG_BYTES, runBuild } from "../src/xcodebuild.js";
+import {
+  claimStem,
+  prepareRun,
+  PROGRESS_BACKLOG_BYTES,
+  runBuild,
+} from "../src/xcodebuild.js";
 
 // `runBuild` against a stand-in xcodebuild, so what reaches stderr can be
 // checked without a project. The fake ignores its arguments, including the
@@ -63,9 +70,7 @@ describe("runBuild progress", () => {
       progress: progress.stream,
     });
 
-    expect(
-      progress.text().startsWith(`log: ${join(dir, "MyApp-test.log")}\n`),
-    ).toBe(true);
+    expect(progress.text().startsWith(`log: ${run.logPath}\n`)).toBe(true);
     expect(progress.text()).toContain("Test Suite 'All tests' started");
     expect(progress.text()).toContain("warning: stale");
     const log = readFileSync(run.logPath, "utf-8");
@@ -88,7 +93,9 @@ describe("runBuild progress", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(progress.text()).toBe(`log: ${join(dir, "MyApp-test.log")}\n`);
+    expect(progress.text()).toBe(
+      `log: ${join(dir, `MyApp-test-${process.pid}.log`)}\n`,
+    );
 
     await pending;
     expect(progress.text()).not.toContain("done");
@@ -215,5 +222,129 @@ describe("runBuild progress", () => {
       }),
     ).rejects.toThrow();
     expect(progress.text()).toBe("");
+  });
+});
+
+// Issue #35: a run that outlived its tests was handed the same log and bundle
+// as the next run of that scheme and device, and reported the second run's
+// counts as its own.
+describe("runBuild artifacts", () => {
+  const created: string[] = [];
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    for (const dir of created) rmSync(dir, { recursive: true, force: true });
+    created.length = 0;
+  });
+
+  /**
+   * A stand-in that behaves like xcodebuild where it matters here: it refuses
+   * a result bundle path that already exists, and writes into the one it is
+   * given. `AXI_TAG` says which run it is.
+   */
+  function fakeXcodebuild(): string {
+    const dir = mkdtempSync(join(tmpdir(), "axi-artifacts-"));
+    created.push(dir);
+    const bin = join(dir, "xcodebuild");
+    writeFileSync(
+      bin,
+      `#!/bin/sh
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-resultBundlePath" ]; then out="$2"; fi
+  shift
+done
+mkdir "$out" || { echo "error: Existing file at -resultBundlePath"; exit 70; }
+echo "$AXI_TAG" > "$out/who"
+echo "started $AXI_TAG"
+sleep 0.3
+echo "finished $AXI_TAG"
+`,
+    );
+    chmodSync(bin, 0o755);
+    vi.stubEnv("XCODEBUILD_BIN", bin);
+    return join(dir, "out");
+  }
+
+  it("gives two concurrent runs of one label a log and bundle each", async () => {
+    const dir = fakeXcodebuild();
+    const quiet = new Writable({ write: (_chunk, _encoding, done) => done() });
+
+    // The environment is read when each run spawns, which is before the
+    // first await, so each run keeps the tag it started with.
+    vi.stubEnv("AXI_TAG", "first");
+    const first = runBuild({
+      args: [],
+      label: "MyApp-test",
+      outDir: dir,
+      progress: quiet,
+    });
+    vi.stubEnv("AXI_TAG", "second");
+    const second = runBuild({
+      args: [],
+      label: "MyApp-test",
+      outDir: dir,
+      progress: quiet,
+    });
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(a.exitCode).toBe(0);
+    expect(b.exitCode).toBe(0);
+    expect(a.resultPath).not.toBe(b.resultPath);
+    expect(a.logPath).not.toBe(b.logPath);
+    expect(readFileSync(join(a.resultPath, "who"), "utf-8")).toBe("first\n");
+    expect(readFileSync(join(b.resultPath, "who"), "utf-8")).toBe("second\n");
+    expect(readFileSync(a.logPath, "utf-8")).toBe(
+      "started first\nfinished first\n",
+    );
+    expect(readFileSync(b.logPath, "utf-8")).toBe(
+      "started second\nfinished second\n",
+    );
+  });
+
+  // The pid is what tells a live run from a finished one, so it is the part
+  // of the name that keeps one from being pruned under another.
+  it("names a run for the process that wrote it", async () => {
+    const dir = fakeXcodebuild();
+    const quiet = new Writable({ write: (_chunk, _encoding, done) => done() });
+    const run = await runBuild({
+      args: [],
+      label: "MyApp-test",
+      outDir: dir,
+      progress: quiet,
+    });
+    expect(run.resultPath).toBe(
+      join(dir, `MyApp-test-${process.pid}.xcresult`),
+    );
+    expect(run.logPath).toBe(join(dir, `MyApp-test-${process.pid}.log`));
+  });
+
+  // A reused pid can meet a kept run's files, and one process can run a
+  // label twice. Either way the stem after them is the one taken.
+  it("claims a stem no file of the label uses yet", () => {
+    const dir = mkdtempSync(join(tmpdir(), "axi-claim-"));
+    created.push(dir);
+    mkdirSync(join(dir, `MyApp-test-${process.pid}.xcresult`));
+    writeFileSync(join(dir, `MyApp-test-${process.pid}-2-console.log`), "");
+    expect(claimStem(dir, "MyApp-test", ".log")).toBe(
+      `MyApp-test-${process.pid}-3`,
+    );
+    expect(claimStem(dir, "MyApp-test", ".log")).toBe(
+      `MyApp-test-${process.pid}-4`,
+    );
+  });
+
+  // A CI job that runs three test plans and uploads at the end wants all
+  // three, so a directory the caller named is never housekept.
+  it("prunes nothing in a directory the caller named", () => {
+    const dir = mkdtempSync(join(tmpdir(), "axi-outdir-"));
+    created.push(dir);
+    for (const pid of [1, 2, 3]) {
+      mkdirSync(join(dir, `MyApp-test-${2 ** 22 + pid}.xcresult`));
+    }
+    prepareRun({ label: "MyApp-test", outDir: dir });
+    for (const pid of [1, 2, 3]) {
+      expect(
+        existsSync(join(dir, `MyApp-test-${2 ** 22 + pid}.xcresult`)),
+      ).toBe(true);
+    }
   });
 });

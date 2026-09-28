@@ -25,8 +25,8 @@ scheme: MyApp
 destination: iPhone 17 Pro · iOS Simulator 26.5
 tests: 767 passed / 0 failed / 0 skipped
 duration: 15m34s
-log: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.log
-result: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-test.xcresult
+log: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-26-5-test-4821.log
+result: ~/Library/Caches/xcodebuild-axi/MyApps-1a2b3c4d/MyApp-iPhone-17-Pro-26-5-test-4821.xcresult
 ```
 
 The whole transcript still lands in `log`, so nothing is lost — it just stops
@@ -53,7 +53,7 @@ destination: My Mac · macOS 26.6.1
 duration: 4.6s
 errors[1]{file,line,col,type,message}:
   Sources/Probe/Probe.swift,2,25,swift,Cannot convert value of type 'String' to specified type 'Int'
-log: ~/Library/Caches/xcodebuild-axi/Probe-9f8e7d6c/Probe-My-Mac-build.log
+log: ~/Library/Caches/xcodebuild-axi/Probe-9f8e7d6c/Probe-My-Mac-build-5102.log
 ```
 
 21,636 bytes of transcript, one line of answer.
@@ -359,7 +359,9 @@ npx skills add alexrrouse/xcodebuild-axi --skill xcodebuild-axi
   the exact raw command to run instead, so an agent that falls back does so on
   purpose rather than because the first guess failed.
 - **Nothing is written to your repository.** Logs and result bundles live under
-  `~/Library/Caches/xcodebuild-axi/`, keyed by project path.
+  `~/Library/Caches/xcodebuild-axi/`, keyed by project path — one pair per
+  run, so two runs of one scheme never read each other's. Each run clears out
+  older finished runs of the same kind, keeping the one before it.
 - **No interactive prompts, ever.** Code signing is off by default so simulator
   builds need no team; pass `--sign` when you mean it.
 
