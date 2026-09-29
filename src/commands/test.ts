@@ -17,6 +17,7 @@ import {
   readTests,
   readTestSummary,
   testIdentifierFromURL,
+  testTally,
   toDiagnostics,
   treeIdentifiers,
   describeDevice,
@@ -395,9 +396,6 @@ async function renderTestSummary(
   options: RenderTestSummaryOptions,
 ): Promise<string> {
   const { summary, run, context, tree, only, skip } = options;
-  const failed = summary.failedTests ?? 0;
-  const passed = summary.passedTests ?? 0;
-  const skipped = summary.skippedTests ?? 0;
   const identifiers = tree ? treeIdentifiers(tree) : undefined;
   const verdict = testVerdict({
     exitCode: run.exitCode,
@@ -428,7 +426,7 @@ async function renderTestSummary(
       destination: landed,
       // Slash-separated, not comma-separated: TOON quotes any scalar
       // containing a comma, and the quotes cost more than the commas saved.
-      tests: `${passed} passed / ${failed} failed / ${skipped} skipped`,
+      tests: testTally(summary),
       ...(unmatched.length > 0 ? { unmatched } : {}),
       duration: duration(run.seconds),
       ...(coverageReport
