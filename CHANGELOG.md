@@ -6,6 +6,14 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- **`test` and `result` count expected failures.** A test wrapped in
+  `XCTExpectFailure` is in none of `passed`, `failed` or `skipped`, so an
+  11-test run reported `7 passed / 0 failed / 0 skipped` and four tests went
+  unaccounted for. The tally now ends `/ 4 expected failures` when there are
+  any, and is unchanged when there are none.
+
 ## [0.4.0] - 2026-09-29
 
 ### Added

@@ -49,6 +49,7 @@ import {
   type TestTree,
   buildStatus,
   meaningfulErrors,
+  testTally,
 } from "../xcresult.js";
 import { diagnosticsBlock, failureRows } from "../report.js";
 import {
@@ -207,7 +208,7 @@ export async function resultCommand(args: string[]): Promise<string> {
         result: summary.result?.toLowerCase() ?? "unknown",
         title: summary.title ?? "",
         destination: describeDevice(device),
-        tests: `${summary.passedTests ?? 0} passed / ${summary.failedTests ?? 0} failed / ${summary.skippedTests ?? 0} skipped`,
+        tests: testTally(summary),
         duration:
           summary.startTime !== undefined && summary.finishTime !== undefined
             ? duration(summary.finishTime - summary.startTime)
@@ -791,7 +792,7 @@ async function runMerge(args: string[], max: number): Promise<string> {
       merged: paths.length,
       ...(merged && (merged.totalTestCount ?? 0) > 0
         ? {
-            tests: `${merged.passedTests ?? 0} passed / ${merged.failedTests ?? 0} failed / ${merged.skippedTests ?? 0} skipped`,
+            tests: testTally(merged),
             result: merged.result?.toLowerCase() ?? "unknown",
           }
         : {}),

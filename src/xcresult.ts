@@ -305,6 +305,26 @@ function xcresulttool<T>(args: string[], path: string): Promise<T> {
   });
 }
 
+/**
+ * The `tests:` tally, `7 passed / 0 failed / 0 skipped`, plus
+ * `/ 4 expected failures` when there are any. `xcresulttool` counts a test
+ * wrapped in `XCTExpectFailure` in neither `passedTests` nor `failedTests`, so
+ * leaving the fourth count out reported an 11-test run as 7 -- and a test
+ * quietly missing from a tally reads as a test that did not run.
+ */
+export function testTally(summary: {
+  passedTests?: number;
+  failedTests?: number;
+  skippedTests?: number;
+  expectedFailures?: number;
+}): string {
+  const tally = `${summary.passedTests ?? 0} passed / ${summary.failedTests ?? 0} failed / ${summary.skippedTests ?? 0} skipped`;
+  const expected = summary.expectedFailures ?? 0;
+  return expected > 0
+    ? `${tally} / ${expected} expected failure${expected === 1 ? "" : "s"}`
+    : tally;
+}
+
 export function readTestSummary(path: string): Promise<TestSummary> {
   return xcresulttool<TestSummary>(["get", "test-results", "summary"], path);
 }

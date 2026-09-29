@@ -8,6 +8,7 @@ import {
   buildErrorCount,
   isRestatement,
   meaningfulErrors,
+  testTally,
 } from "../src/xcresult.js";
 
 describe("parseSourceURL", () => {
@@ -265,6 +266,30 @@ describe("isRestatement", () => {
     ).toBe(true);
     expect(isRestatement({ message: "Cannot find 'total' in scope" })).toBe(
       false,
+    );
+  });
+});
+
+describe("testTally", () => {
+  it("keeps the three-count line when nothing is an expected failure", () => {
+    expect(testTally({ passedTests: 7, failedTests: 1, skippedTests: 2 })).toBe(
+      "7 passed / 1 failed / 2 skipped",
+    );
+  });
+
+  // xcresulttool counts an XCTExpectFailure test in none of the other three,
+  // so an 11-test run read as "7 passed" with four tests unaccounted for.
+  it("counts expected failures, which are in none of the other three", () => {
+    expect(
+      testTally({
+        passedTests: 7,
+        failedTests: 0,
+        skippedTests: 0,
+        expectedFailures: 4,
+      }),
+    ).toBe("7 passed / 0 failed / 0 skipped / 4 expected failures");
+    expect(testTally({ passedTests: 1, expectedFailures: 1 })).toBe(
+      "1 passed / 0 failed / 0 skipped / 1 expected failure",
     );
   });
 });
