@@ -868,12 +868,19 @@ export function toDiagnostics(
   for (const issue of issues ?? []) {
     const message = (issue.message ?? "").replace(/\s+/g, " ").trim();
     let { file, line, col } = parseSourceURL(issue.sourceURL);
+    // Two rows that only have a file name may be two files of that name, so
+    // they stay apart by the expansions they came from.
+    let identity = file;
     if (isMacroExpansionFile(file)) {
       const source = locateInSource({ file, line, col, message }, origins);
-      if (source)
-        ({ file, line, col } = { ...source, file: relativize(source.file) });
+      if (source) {
+        file = source.exact ? relativize(source.file) : source.file;
+        line = source.line;
+        col = source.col;
+        if (source.exact) identity = file;
+      }
     }
-    const key = `${file}:${line}:${col}:${message}`;
+    const key = `${identity}:${line}:${col}:${message}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({

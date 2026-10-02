@@ -151,17 +151,22 @@ only to say where one of them was written.
     `` `- <path>:L:C: note: expanded code originates here`` — but that
     location is the macro's _end_, one column past its closing parenthesis and
     on its last line, so only the path is taken from it. Its message is
-    lowercased and may end in a ` [#Group]` the bundle's does not carry.
+    lowercased and may end in a ` [#Group]` the bundle's does not carry, and
+    other `|-` notes on the same error can come before it.
   - **Two identical mistakes in one file** are two transcript entries with the
     same message at the same position in their expansions; the one at or
     nearest below the macro's line is its own.
-  - **Without a log** — `result` on a bundle moved away from its `.log` — the
-    row says the bare file name at the right line. That is a new shape for the
-    `file` column, and still better than the temporary path. An attached
-    macro's name (`…fMp_`) carries no position, so it takes the transcript's
-    origin or stays as it was.
-  - **Dedupe runs after relocation.** One file compiled into two targets
-    expands into two differently named files, and is one mistake.
+  - **Without a log** — `result` on a bundle moved away from its `.log`, or
+    beside one older than the run — the row says the bare file name at the
+    right line. That is a new shape for the `file` column, and still better
+    than the temporary path.
+  - **An attached macro is left alone.** Its name (`…fMp_`) carries no
+    position, and its transcript origin could be matched only on a message and
+    a position inside an expansion, which any other macro may share.
+  - **Dedupe runs after relocation**, since one file compiled into two targets
+    expands into two differently named files and is one mistake — but only
+    for rows given a full path. Two rows with only a file name may be two
+    files of that name, and dropping one would lose a real error.
 
 ## xcodebuild failures that produce no usable bundle
 

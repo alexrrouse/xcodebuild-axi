@@ -192,13 +192,25 @@ describe("toDiagnostics in a macro expansion", () => {
     expect(only?.file).toBe("CheckoutTests.swift");
   });
 
-  it("takes an attached macro's origin only when the transcript is unambiguous", () => {
+  it("keeps two files of one name apart when it cannot tell their paths", () => {
+    // CheckoutTests.swift in two targets, one mistake each, no log: the same
+    // row twice is a duplicate, but dropping one could lose a real error.
+    const diagnostics = toDiagnostics([
+      issue(expansion("10MyAppTests", checkout, "6_4_")),
+      issue(expansion("12MyAppUITests", checkout, "6_4_")),
+    ]);
+    expect(at(diagnostics)).toEqual([
+      "CheckoutTests.swift:7:5",
+      "CheckoutTests.swift:7:5",
+    ]);
+  });
+
+  it("leaves an attached macro where the bundle put it", () => {
+    // Its name carries no position, and a message at 2:3 of some expansion
+    // is something any other macro may share.
     const attached =
       "file:///var/folders/T/swift-generated-sources/@__swiftmacro_5MyApp4CartV5StatefMp_.swift#StartingColumnNumber=2&StartingLineNumber=1";
     expect(at(toDiagnostics([issue(attached)], [origin(9)]))).toEqual([
-      "/repo/Tests/MyAppTests/CheckoutTests.swift:9:42",
-    ]);
-    expect(at(toDiagnostics([issue(attached)]))).toEqual([
       "/var/folders/T/swift-generated-sources/@__swiftmacro_5MyApp4CartV5StatefMp_.swift:2:3",
     ]);
   });

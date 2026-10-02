@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,10 @@ describe("decodeSwiftPunycode", () => {
 
   it("rejects digits outside its alphabet", () => {
     expect(decodeSwiftPunycode("CheckoutTestsswift_yn9")).toBeUndefined();
+  });
+
+  it("rejects a code point past Unicode rather than throwing", () => {
+    expect(decodeSwiftPunycode("a_JJJJJJa")).toBeUndefined();
   });
 });
 
@@ -107,6 +111,17 @@ describe("parseMacroOrigins", () => {
       expect.objectContaining({ originLine: 14, originCol: 6 }),
     ]);
   });
+
+  it("reads past another note on the same diagnostic", () => {
+    const origins = parseMacroOrigins(
+      [
+        "macro expansion #expect:2:3: error: cannot find 'total' in scope",
+        "|- /repo/Sources/MyApp/Cart.swift:4:7: note: did you mean 'totals'?",
+        "`- /repo/Tests/MyAppTests/CheckoutTests.swift:9:30: note: expanded code originates here",
+      ].join("\n"),
+    );
+    expect(origins.map((origin) => origin.originLine)).toEqual([9]);
+  });
 });
 
 describe("readMacroOrigins", () => {
@@ -129,6 +144,28 @@ describe("readMacroOrigins", () => {
   it("answers nothing for a bundle with no log beside it", async () => {
     expect(
       await readMacroOrigins("/nonexistent/MyApp-test-1.log", inExpansion),
+    ).toEqual([]);
+  });
+
+  it("reads the log for a diagnostic whose file is an expansion, not a directory named like one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "axi-macro-"));
+    const log = join(dir, "MyApp-test-1.log");
+    writeFileSync(log, TRANSCRIPT);
+    const results = {
+      errors: [
+        { message: "x", sourceURL: "file:///repo/@__swiftmacro_x/A.swift" },
+      ],
+    };
+    expect(await readMacroOrigins(log, results)).toEqual([]);
+  });
+
+  it("ignores a log older than the run it sits beside", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "axi-macro-"));
+    const log = join(dir, "MyApp-test-1.log");
+    writeFileSync(log, TRANSCRIPT);
+    utimesSync(log, 1_000_000, 1_000_000);
+    expect(
+      await readMacroOrigins(log, { ...inExpansion, startTime: 2_000_000 }),
     ).toEqual([]);
   });
 

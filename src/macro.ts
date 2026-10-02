@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { createInterface } from "node:readline";
 import type { BuildResults } from "./xcresult.js";
@@ -159,6 +159,7 @@ export function decodeSwiftPunycode(encoded: string): string | undefined {
     i += 1;
   }
 
+  if (output.some((point) => point > 0x10ffff)) return undefined;
   return String.fromCodePoint(
     ...output.map((point) =>
       point >= 0xd800 && point < 0xd880 ? point - 0xd800 : point,
@@ -214,7 +215,12 @@ export function macroOriginScanner(): {
       }
       if (!header) return;
       const [, file, originLine, originCol] = ORIGIN_NOTE.exec(text) ?? [];
-      if (file === undefined || isMacroExpansionFile(file)) return;
+      if (file === undefined) {
+        // Another note on the same diagnostic: the origin may be the next.
+        if (/^[`|]-/.test(text)) pending = header;
+        return;
+      }
+      if (isMacroExpansionFile(file)) return;
       origins.push({
         ...header,
         file,
@@ -246,10 +252,16 @@ export async function readMacroOrigins(
     ...(results?.warnings ?? []),
     ...(results?.analyzerWarnings ?? []),
   ];
-  if (!issues.some((issue) => issue.sourceURL?.includes(MACRO_FILE_PREFIX))) {
+  const inExpansion = issues.some((issue) =>
+    isMacroExpansionFile(issue.sourceURL?.split("#")[0] ?? ""),
+  );
+  if (!inExpansion || !logPath || !existsSync(logPath)) return [];
+  // A log older than the run is some other run's: `result` reads whatever
+  // `.log` sits beside a bundle, and one this tool did not write may be stale.
+  const started = results?.startTime;
+  if (started !== undefined && statSync(logPath).mtimeMs / 1000 < started) {
     return [];
   }
-  if (!logPath || !existsSync(logPath)) return [];
 
   const scanner = macroOriginScanner();
   try {
@@ -266,48 +278,33 @@ export async function readMacroOrigins(
 
 /**
  * The source location of a diagnostic the bundle placed in an expansion
- * file, or undefined when nothing can say.
+ * file, or undefined when its name cannot say.
  *
- * A freestanding macro is reported where it starts, in the file its name
- * gives. The transcript supplies the directory: of the origins with the same
- * message at the same position in an expansion, the one in a file of that
- * name nearest at or below the macro's first line. When no origin settles it
- * -- no log, or two paths equally near -- the bare file name is still
- * exact, and one search away from a path.
+ * The macro is reported where it starts, in the file its name gives. The
+ * transcript supplies the directory: of the origins with the same message at
+ * the same position in an expansion, the one in a file of that name nearest
+ * at or below the macro's first line. When no origin settles it -- no log, or
+ * two paths equally near -- the bare file name is still exact, and one search
+ * away from a path; `exact` says which the caller got.
  *
- * An attached macro's name carries no position, so its origin is used as the
- * transcript gives it, and only when every candidate agrees.
+ * An attached macro's name (`...fMp_`) carries no position, and its origin
+ * could only be matched on a message and a position inside an expansion,
+ * which any other macro may share. It is left where the bundle put it.
  */
 export function locateInSource(
   at: SourceLocation & { message: string },
   origins: MacroOrigin[],
-): SourceLocation | undefined {
-  const candidates = origins.filter(
+): (SourceLocation & { exact: boolean }) | undefined {
+  const name = parseMacroExpansionName(at.file);
+  if (!name) return undefined;
+
+  const inFile = origins.filter(
     (origin) =>
       origin.line === at.line &&
       origin.col === at.col &&
-      sameDiagnosticMessage(origin.message, at.message),
-  );
-
-  const name = parseMacroExpansionName(at.file);
-  if (!name) {
-    const [first] = candidates;
-    const agreed =
-      first &&
-      candidates.every(
-        (origin) =>
-          origin.file === first.file &&
-          origin.originLine === first.originLine &&
-          origin.originCol === first.originCol,
-      );
-    return agreed
-      ? { file: first.file, line: first.originLine, col: first.originCol }
-      : undefined;
-  }
-
-  const inFile = candidates.filter(
-    (origin) =>
-      basename(origin.file) === name.file && origin.originLine >= name.line,
+      sameDiagnosticMessage(origin.message, at.message) &&
+      basename(origin.file) === name.file &&
+      origin.originLine >= name.line,
   );
   const nearest = Math.min(
     ...inFile.map((origin) => origin.originLine - name.line),
@@ -318,9 +315,11 @@ export function locateInSource(
       .map((origin) => origin.file),
   );
   const [path] = paths;
+  const exact = paths.size === 1 && path !== undefined;
   return {
-    file: paths.size === 1 && path !== undefined ? path : name.file,
+    file: exact ? path : name.file,
     line: name.line,
     col: name.col,
+    exact,
   };
 }
