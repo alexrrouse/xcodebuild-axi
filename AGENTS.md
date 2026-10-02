@@ -110,9 +110,12 @@ the README section it writes, so pointing it at a real app cannot leak one.
 Every build and test runs with `-resultBundlePath` and reports from the bundle
 via `xcresulttool`, never by grepping the log. The transcript is streamed
 straight to a file and never read into memory — a single passing test run
-measured 549 KB, and a full verify run of the same repo 2.5 MB.
+measured 549 KB, and a full verify run of the same repo 2.5 MB. The one
+exception is a diagnostic inside a macro expansion, below: the bundle still
+decides which diagnostics there are, and the log is streamed a line at a time
+only to say where one of them was written.
 
-`src/xcresult.ts` owns every read. Two things there are easy to get wrong:
+`src/xcresult.ts` owns every read. Things there that are easy to get wrong:
 
 - **`sourceURL` line and column numbers are zero-based.** A diagnostic at
   `StartingLineNumber=165` is on line 166 as any editor counts it. Verified
@@ -131,6 +134,34 @@ measured 549 KB, and a full verify run of the same repo 2.5 MB.
   Within a test's node tree the deepest `sourceLocation` wins — a
   "Source Code Reference" child points at the assertion, its parent at the test
   case that ran it.
+- **A diagnostic inside a macro expansion is recorded against the expansion.**
+  Every compile error in an `#expect` or `#require` has this shape: the
+  bundle's `sourceURL` is a temporary
+  `swift-generated-sources/@__swiftmacro_…swift` file, usually gone by the
+  time anyone reads it, at a position inside it — and the bundle has nothing
+  else, in either schema. `src/macro.ts` puts it back where it was written:
+  - **The mangled name gives the file name and the macro's start.**
+    `@__swiftmacro_10MyAppTests0024CheckoutTestsswift_ynAHffMX6_4_…` is the
+    module, then the file name in Swift's punycode (the `00` marks it; `.`
+    and `+` cannot appear in a symbol, so every file name is encoded), then
+    `MX6_4_` — `N_` meaning N + 1, so line 7, column 5, the `#` of `#expect`.
+    Decode the punycode properly: `Cart+Checkout.swift` comes out as
+    `CartCheckoutswift_mjFCfEb`, which no "put the dot back" shortcut restores.
+  - **The transcript gives the directory.** The error is followed by
+    `` `- <path>:L:C: note: expanded code originates here`` — but that
+    location is the macro's _end_, one column past its closing parenthesis and
+    on its last line, so only the path is taken from it. Its message is
+    lowercased and may end in a ` [#Group]` the bundle's does not carry.
+  - **Two identical mistakes in one file** are two transcript entries with the
+    same message at the same position in their expansions; the one at or
+    nearest below the macro's line is its own.
+  - **Without a log** — `result` on a bundle moved away from its `.log` — the
+    row says the bare file name at the right line. That is a new shape for the
+    `file` column, and still better than the temporary path. An attached
+    macro's name (`…fMp_`) carries no position, so it takes the transcript's
+    origin or stays as it was.
+  - **Dedupe runs after relocation.** One file compiled into two targets
+    expands into two differently named files, and is one mistake.
 
 ## xcodebuild failures that produce no usable bundle
 

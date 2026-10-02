@@ -13,6 +13,14 @@ Notable changes to `xcodebuild-axi`. Versions follow
   11-test run reported `7 passed / 0 failed / 0 skipped` and four tests went
   unaccounted for. The tally now ends `/ 4 expected failures` when there are
   any, and is unchanged when there are none.
+- **A compile error inside a macro is reported where the macro was written**
+  ([#55](https://github.com/alexrrouse/xcodebuild-axi/issues/55)). Every
+  error in an `#expect` or `#require` was reported at the compiler's temporary
+  expansion file —
+  `/var/folders/…/@__swiftmacro_…expectfMf_.swift,2,3` — which is usually
+  gone by the time anyone reads it. `build`, `test` and `result` now report
+  `Tests/MyAppTests/CheckoutTests.swift,7,5`, the `#expect` itself. A bundle
+  read without its log keeps the line and gives the bare file name.
 
 ## [0.4.0] - 2026-09-29
 

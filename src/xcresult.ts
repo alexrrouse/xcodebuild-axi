@@ -2,6 +2,11 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { relative } from "node:path";
 import { AxiError } from "./errors.js";
+import {
+  isMacroExpansionFile,
+  locateInSource,
+  type MacroOrigin,
+} from "./macro.js";
 
 /**
  * Structured reads of an .xcresult bundle.
@@ -847,14 +852,27 @@ function stripPrivate(path: string): string {
  * The same Swift diagnostic is reported once per target that compiles the
  * file, so a warning in a shared package can appear a dozen times in one
  * build. Only the first is information; the rest are paid-for repetition.
+ *
+ * A diagnostic inside a macro expansion is moved to where the macro was
+ * written (`locateInSource`) before that comparison: one file compiled into
+ * two targets expands into two differently named files, and is still one
+ * mistake.
  */
-export function toDiagnostics(issues: RawIssue[] | undefined): Diagnostic[] {
+export function toDiagnostics(
+  issues: RawIssue[] | undefined,
+  origins: MacroOrigin[] = [],
+): Diagnostic[] {
   const seen = new Set<string>();
   const out: Diagnostic[] = [];
 
   for (const issue of issues ?? []) {
-    const { file, line, col } = parseSourceURL(issue.sourceURL);
     const message = (issue.message ?? "").replace(/\s+/g, " ").trim();
+    let { file, line, col } = parseSourceURL(issue.sourceURL);
+    if (isMacroExpansionFile(file)) {
+      const source = locateInSource({ file, line, col, message }, origins);
+      if (source)
+        ({ file, line, col } = { ...source, file: relativize(source.file) });
+    }
     const key = `${file}:${line}:${col}:${message}`;
     if (seen.has(key)) continue;
     seen.add(key);

@@ -9,7 +9,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { artifactDir, exportDir, mergedBundlePath } from "../xcodebuild.js";
-import { newestBundle } from "../bundles.js";
+import { logFor, newestBundle } from "../bundles.js";
+import { readMacroOrigins } from "../macro.js";
 import { resolveProject, type ProjectContext } from "../context.js";
 import {
   describeDevice,
@@ -235,11 +236,14 @@ export async function resultCommand(args: string[]): Promise<string> {
   }
 
   if (build) {
-    const errors = toDiagnostics(meaningfulErrors(build.errors));
-    const warnings = toDiagnostics([
-      ...(build.warnings ?? []),
-      ...(build.analyzerWarnings ?? []),
-    ]);
+    // The run's log sits beside a bundle this tool wrote; any other bundle
+    // has none, and its macro diagnostics keep only their file names.
+    const origins = await readMacroOrigins(logFor(path), build);
+    const errors = toDiagnostics(meaningfulErrors(build.errors), origins);
+    const warnings = toDiagnostics(
+      [...(build.warnings ?? []), ...(build.analyzerWarnings ?? [])],
+      origins,
+    );
 
     if (errors.length > 0) {
       blocks.push(

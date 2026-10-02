@@ -104,6 +104,106 @@ describe("toDiagnostics", () => {
   });
 });
 
+describe("toDiagnostics in a macro expansion", () => {
+  // Real names, from compiling `#expect(items.allSatisfy(\.inStock))` -- a
+  // rethrowing call given a key path -- in a MyAppTests target, once at line 7
+  // and once as a three-line `#expect(` at line 12.
+  const expansion = (module: string, file: string, at: string) =>
+    `file:///var/folders/T/swift-generated-sources/@__swiftmacro_${module}${file}fMX${at}6expectfMf_.swift#EndingColumnNumber=2&EndingLineNumber=1&StartingColumnNumber=2&StartingLineNumber=1`;
+  const checkout = "0024CheckoutTestsswift_ynAHf";
+  const message =
+    "Call can throw, but it is not marked with 'try' and the error is not handled";
+  const issue = (sourceURL: string, text = message) => ({
+    issueType: "Swift Compiler Error",
+    message: text,
+    sourceURL,
+  });
+  const origin = (originLine: number, file = "CheckoutTests.swift") => ({
+    line: 2,
+    col: 3,
+    message:
+      "call can throw, but it is not marked with 'try' and the error is not handled",
+    file: `/repo/Tests/MyAppTests/${file}`,
+    originLine,
+    originCol: 42,
+  });
+  const at = (
+    diagnostics: { file: string; line: number | ""; col: number | "" }[],
+  ) => diagnostics.map(({ file, line, col }) => `${file}:${line}:${col}`);
+
+  it("reports each mistake where its macro starts, not inside the expansion", () => {
+    const diagnostics = toDiagnostics(
+      [
+        issue(expansion("10MyAppTests", checkout, "6_4_")),
+        issue(expansion("10MyAppTests", checkout, "11_4_")),
+      ],
+      [origin(7), origin(14)],
+    );
+    // Two identical mistakes, each at 2:3 of its own expansion: the macro's
+    // line is what keeps them two rows.
+    expect(at(diagnostics)).toEqual([
+      "/repo/Tests/MyAppTests/CheckoutTests.swift:7:5",
+      "/repo/Tests/MyAppTests/CheckoutTests.swift:12:5",
+    ]);
+    expect(diagnostics[0]?.message).toBe(message);
+  });
+
+  it("falls back to the file name when there is no transcript to give a path", () => {
+    expect(
+      at(toDiagnostics([issue(expansion("10MyAppTests", checkout, "6_4_"))])),
+    ).toEqual(["CheckoutTests.swift:7:5"]);
+  });
+
+  it("collapses one file compiled into two targets into one row", () => {
+    const diagnostics = toDiagnostics(
+      [
+        issue(expansion("10MyAppTests", checkout, "6_4_")),
+        issue(expansion("13MyAppMacTests", checkout, "6_4_")),
+      ],
+      [origin(7), origin(7)],
+    );
+    expect(diagnostics).toHaveLength(1);
+  });
+
+  it("matches a transcript message that differs in case and carries a group", () => {
+    const [only] = toDiagnostics(
+      [issue(expansion("10MyAppTests", checkout, "6_4_"))],
+      [{ ...origin(7), message: `${origin(7).message} [#ThrowingCall]` }],
+    );
+    expect(only?.file).toBe("/repo/Tests/MyAppTests/CheckoutTests.swift");
+  });
+
+  it("does not borrow the path of a different message at the same position", () => {
+    const [only] = toDiagnostics(
+      [issue(expansion("10MyAppTests", checkout, "6_4_"))],
+      [{ ...origin(7), message: "cannot find 'total' in scope" }],
+    );
+    expect(only?.file).toBe("CheckoutTests.swift");
+  });
+
+  it("keeps the file name when two paths are equally near", () => {
+    const [only] = toDiagnostics(
+      [issue(expansion("10MyAppTests", checkout, "6_4_"))],
+      [
+        origin(7),
+        { ...origin(7), file: "/repo/Tests/MyAppUITests/CheckoutTests.swift" },
+      ],
+    );
+    expect(only?.file).toBe("CheckoutTests.swift");
+  });
+
+  it("takes an attached macro's origin only when the transcript is unambiguous", () => {
+    const attached =
+      "file:///var/folders/T/swift-generated-sources/@__swiftmacro_5MyApp4CartV5StatefMp_.swift#StartingColumnNumber=2&StartingLineNumber=1";
+    expect(at(toDiagnostics([issue(attached)], [origin(9)]))).toEqual([
+      "/repo/Tests/MyAppTests/CheckoutTests.swift:9:42",
+    ]);
+    expect(at(toDiagnostics([issue(attached)]))).toEqual([
+      "/var/folders/T/swift-generated-sources/@__swiftmacro_5MyApp4CartV5StatefMp_.swift:2:3",
+    ]);
+  });
+});
+
 describe("describeDevice", () => {
   it("names the device and the OS it ran", () => {
     expect(

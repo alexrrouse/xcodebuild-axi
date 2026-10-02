@@ -17,6 +17,7 @@ import {
   toDiagnostics,
 } from "./xcresult.js";
 import { diagnosticsBlock, transcriptTail } from "./report.js";
+import { readMacroOrigins } from "./macro.js";
 import {
   defaultDeps,
   heldUdids,
@@ -553,13 +554,17 @@ export async function reportAction(
 ): Promise<string> {
   const { run, context } = options;
   const results = await readBuildResults(run.resultPath).catch(() => undefined);
+  const origins = await readMacroOrigins(run.logPath, results);
 
-  const errors = toDiagnostics(meaningfulErrors(results?.errors));
-  const analyzerWarnings = toDiagnostics(results?.analyzerWarnings);
-  const warnings = toDiagnostics([
-    ...(results?.warnings ?? []),
-    ...(options.analyzer ? [] : (results?.analyzerWarnings ?? [])),
-  ]);
+  const errors = toDiagnostics(meaningfulErrors(results?.errors), origins);
+  const analyzerWarnings = toDiagnostics(results?.analyzerWarnings, origins);
+  const warnings = toDiagnostics(
+    [
+      ...(results?.warnings ?? []),
+      ...(options.analyzer ? [] : (results?.analyzerWarnings ?? [])),
+    ],
+    origins,
+  );
   const succeeded = run.exitCode === 0;
 
   // A bundle that records no *usable* error for a nonzero exit means xcodebuild
