@@ -6,6 +6,8 @@ Notable changes to `xcodebuild-axi`. Versions follow
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-01
+
 ### Fixed
 
 - **`test` and `result` count expected failures.** A test wrapped in
@@ -846,7 +848,8 @@ First release.
 - 100% of the 117 options `xcodebuild -help` lists are covered, declared in
   `src/surface.ts` and checked against the installed Xcode in CI.
 
-[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.4.0...HEAD
+[unreleased]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alexrrouse/xcodebuild-axi/compare/v0.1.15...v0.2.0
