@@ -493,7 +493,7 @@ describe("testListRows", () => {
 
   // A test --retry let through is a flake, and the cap must not cut it
   // before the tests that passed every run.
-  it("lists failures, then flakes, then clean tests", () => {
+  it("lists failures, then flakes, then skips, then clean tests", () => {
     const rows = testListRows([
       runs("CheckoutTests/testSteady", "passed", 10, 10),
       runs("CheckoutTests/testRetried", "passed", 1, 2),
@@ -501,10 +501,26 @@ describe("testListRows", () => {
       runs("CheckoutTests/testFlaky", "failed", 9, 10),
     ]);
     expect(rows.map((row) => row.test.split("/").pop())).toEqual([
-      "testSkipped",
       "testFlaky",
       "testRetried",
+      "testSkipped",
       "testSteady",
+    ]);
+  });
+
+  it("does not call a test that skipped some runs a flake", () => {
+    const sometimesSkipped = {
+      ...runs("CheckoutTests/testSometimes", "passed", 7, 10),
+      failed: 0,
+      skipped: 3,
+    };
+    const rows = testListRows([
+      runs("CheckoutTests/testSkipped", "skipped", 0, 1),
+      sometimesSkipped,
+    ]);
+    expect(rows.map((row) => row.test.split("/").pop())).toEqual([
+      "testSkipped",
+      "testSometimes",
     ]);
   });
 });

@@ -571,10 +571,82 @@ describe("repeated runs", () => {
       failedRuns({ testIdentifierURL: url("CheckoutTests/testFlaky") }, runs),
     ).toBe("1/10");
     expect(
-      failedRuns({ testIdentifierString: "CartTests/flaky()" }, runs),
+      failedRuns(
+        { targetName: "MyAppTests", testIdentifierString: "CartTests/flaky()" },
+        runs,
+      ),
     ).toBe("1/10");
     expect(failedRuns({ testIdentifierURL: url("Gone/testGone") }, runs)).toBe(
       "",
+    );
+  });
+
+  it("never gives one target's count to a test of the same name in another", () => {
+    const runs = runTally(
+      tree(testCase("CheckoutTests/testFlaky", "Failed", reps("x", 10, [4]))),
+    )!;
+    expect(
+      failedRuns(
+        {
+          targetName: "MyAppUITests",
+          testIdentifierString: "CheckoutTests/testFlaky",
+        },
+        runs,
+      ),
+    ).toBe("");
+  });
+
+  it("matches a tree that has no URLs on the identifier it does have", () => {
+    const runs = runTally(
+      tree({
+        nodeType: "Test Case",
+        nodeIdentifier: "CheckoutTests/testFlaky()",
+        result: "Failed",
+        children: reps("x", 10, [4]),
+      }),
+    )!;
+    expect(
+      failedRuns(
+        {
+          testIdentifierURL: url("CheckoutTests/testFlaky"),
+          testIdentifierString: "CheckoutTests/testFlaky()",
+        },
+        runs,
+      ),
+    ).toBe("1/10");
+  });
+
+  it("counts every argument of a parameterized test a retry touched once", () => {
+    const runs = runTally(
+      tree(
+        testCase("PriceTests/positive(value:)", "Passed", [
+          { nodeType: "Arguments", name: "1", result: "Passed" },
+          {
+            nodeType: "Arguments",
+            name: "2",
+            result: "Passed",
+            children: reps("x", 2, [1], (n) =>
+              n === 1 ? "First Run" : `Retry ${n - 1}`,
+            ),
+          },
+          { nodeType: "Arguments", name: "3", result: "Passed" },
+        ]),
+      ),
+    );
+    expect(runs).toMatchObject({ runs: 4, passed: 3, failed: 1 });
+  });
+
+  it("keeps a run with an unrecognised result in the tally", () => {
+    const runs = runTally(
+      tree(
+        testCase("CheckoutTests/testCrash", "Failed", [
+          ...reps("x", 2),
+          { nodeType: "Repetition", name: "Repetition 3", result: "Unknown" },
+        ]),
+      ),
+    );
+    expect(testTally({}, runs)).toBe(
+      "2 passed / 0 failed / 0 skipped / 1 other (1 test × 3 iterations)",
     );
   });
 
@@ -620,5 +692,28 @@ describe("repeated runs", () => {
       ],
     });
     expect(location.line).toBe(8);
+  });
+
+  it("falls back to any run's location when the first failure has none", () => {
+    // A run that crashed records no assertion; a later one may.
+    const location = failureLocation({
+      testRuns: [
+        { nodeType: "Repetition", result: "Failed" },
+        {
+          nodeType: "Repetition",
+          result: "Failed",
+          children: [
+            {
+              nodeType: "Test Case Run",
+              sourceLocation: {
+                filePath: "/repo/CheckoutTests.swift",
+                lineNumber: 12,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(location.line).toBe(12);
   });
 });

@@ -26,7 +26,6 @@ import {
   readLog,
   readMetrics,
   readTests,
-  testIdentifierFromURL,
   readTestSummary,
   toDiagnostics,
   type ActivityNode,
@@ -53,6 +52,7 @@ import {
   testTally,
   countTally,
   readRepeatedRuns,
+  caseIdentifier,
   runTally,
   type TestRuns,
 } from "../xcresult.js";
@@ -948,11 +948,7 @@ export function flattenTests(
     if (node.nodeType === "Test Case") {
       rows.push({
         // The URL form carries the target, so a row can be pasted into --only.
-        test:
-          testIdentifierFromURL(node.nodeIdentifierURL) ??
-          node.nodeIdentifier ??
-          node.name ??
-          "",
+        test: caseIdentifier(node),
         result: (node.result ?? "").toLowerCase(),
         duration: node.duration ?? "",
       });
@@ -969,14 +965,22 @@ export function flattenTests(
  * and `passed` says how many of its runs did. The duration xcresulttool gives
  * a repeated test is the mean of its runs, so the column says `mean`.
  *
- * Failed tests first, then tests that passed only some runs -- the flakes --
- * then the rest, so the cap never cuts the reason anyone asked.
+ * Failed tests first, then tests that passed despite a failed run -- the
+ * flakes -- then skipped and expected failures, then the rest, so the cap
+ * never cuts the reason anyone asked. A test that skipped some runs and
+ * passed the others is not a flake.
  */
 export function testListRows(
   runs: TestRuns[],
 ): Array<{ test: string; result: string; passed: string; mean: string }> {
   const rank = (test: TestRuns) =>
-    test.result !== "passed" ? 0 : test.passed < test.runs ? 1 : 2;
+    test.result === "failed"
+      ? 0
+      : test.failed > 0
+        ? 1
+        : test.result !== "passed"
+          ? 2
+          : 3;
   return [...runs]
     .sort((a, b) => rank(a) - rank(b))
     .map((test) => ({

@@ -21,7 +21,8 @@ skipped` — two broken tests, not two failures in 90 runs. The tally now
   each failure says how many of its runs failed (`failed: 1/10`); a test that
   only passed on a `--retry` is named in `passed_on_retry`; and
   `result --tests` gives each test's `passed: 9/10` and `mean` duration. The
-  rerun hint keeps the repetition flags. The verdict and exit code are
+  home view counts runs as well, and the rerun hint keeps the repetition
+  flags. The verdict and exit code are
   unchanged.
 - **A compile error inside a macro is reported where the macro was written**
   ([#55](https://github.com/alexrrouse/xcodebuild-axi/issues/55)). Every

@@ -147,8 +147,10 @@ only to say where one of them was written.
     `Retry 1` under only the test it retried; `--until-failure` stops each
     test at its own failure, so counts differ per test, and a test that
     failed its first run has no repetitions at all. A parameterized test
-    nests them under each `Arguments` node; a skipped test has none. A test
-    case without repetitions is one run.
+    nests them under each `Arguments` node, and an argument `--retry` did not
+    touch is one run of its own; a skipped test has none. A test case without
+    repetitions is one run. A run whose result is none of passed, failed,
+    skipped or expected failure is counted as `other`, so the tally adds up.
   - **"Iterations" only when they are.** The tally says
     `(9 tests × 10 iterations)` when every test that ran was repeated in
     groups of `Repetition N` the same size, `(71 runs of 7 tests over 10
@@ -158,7 +160,8 @@ iterations)` when skips or arguments break the product, and
   - **The verdict stays per test.** `testVerdict` reads the summary, so a
     retry that passed is a pass and any failed iteration a failure; run counts
     never reach it. A retry that passed is named in `passed_on_retry`, since
-    under `--retry` the summary lists no failure at all.
+    under `--retry` the summary lists no failure at all. The home view counts
+    runs too, reading the tree only when `statistics` hints at repetitions.
   - **A repeated test's `duration` is the mean of its runs**, which is why
     `--tests` heads that column `mean`.
   - **`statistics` is `[]` on a plain run**, and says "ran with test

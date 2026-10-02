@@ -231,10 +231,11 @@ export async function testCommand(args: string[]): Promise<string> {
   // Not worth a call otherwise. A test plan can repeat on its own, so the
   // flags alone do not say.
   const only = getListFlag(args, "--only");
+  const repeat = repetitionFlags(args);
   const tree =
     only.length > 0 ||
     summary.totalTestCount === 0 ||
-    repetitionFlags(args).length > 0 ||
+    repeat.length > 0 ||
     mayHaveRepeated(summary)
       ? await readTests(run.resultPath).catch(() => undefined)
       : undefined;
@@ -249,7 +250,7 @@ export async function testCommand(args: string[]): Promise<string> {
     maxFailures: getIntFlag(args, "--max-failures") ?? 20,
     full: context.full,
     coverage,
-    repeat: repetitionFlags(args),
+    repeat,
   });
 }
 
@@ -532,7 +533,7 @@ async function renderTestSummary(
     const first = rerunIdentifier(failures[0]);
     if (first) {
       hints.push(
-        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${shellQuote(first)}${runs && options.repeat ? ` ${options.repeat}` : ""}\` to re-run just this failure`,
+        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${shellQuote(first)}${options.repeat ? ` ${options.repeat}` : ""}\` to re-run just this failure`,
       );
     }
     hints.push(
