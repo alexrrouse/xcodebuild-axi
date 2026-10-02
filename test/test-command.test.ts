@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { passedOnRetry } from "../src/report.js";
 import {
   landedDevice,
   testsNeverRan,
   testVerdict,
   unmatchedSelectors,
+  repetitionFlags,
 } from "../src/commands/test.js";
 import {
   testIdentifierFromURL,
@@ -417,5 +419,48 @@ describe("landedDevice", () => {
     expect(
       landedDevice({ devicesAndConfigurations: [{ device }] }, tree),
     ).toEqual(device);
+  });
+});
+
+describe("repetitionFlags", () => {
+  // One clean rerun of a test that failed one run in ten proves nothing, so
+  // the rerun hint carries the repetition along.
+  it("keeps the flags that repeated the run", () => {
+    expect(
+      repetitionFlags(["--scheme", "MyApp", "--iterations", "10", "--retry"]),
+    ).toBe("--iterations 10 --retry");
+    expect(repetitionFlags(["--scheme", "MyApp", "--until-failure"])).toBe(
+      "--until-failure",
+    );
+    expect(repetitionFlags(["--scheme", "MyApp"])).toBe("");
+  });
+});
+
+describe("passedOnRetry", () => {
+  const tally = (passedOnRetry: string[]) => ({
+    tests: 4,
+    runs: 5,
+    passed: 4,
+    failed: 1,
+    skipped: 0,
+    expectedFailures: 0,
+    byTest: [],
+    passedOnRetry,
+  });
+
+  it("names the tests a retry let pass, and only when there are any", () => {
+    expect(
+      passedOnRetry(tally(["MyAppTests/CheckoutTests/testFlaky"]), 20),
+    ).toEqual({
+      passed_on_retry: ["MyAppTests/CheckoutTests/testFlaky"],
+    });
+    expect(passedOnRetry(tally([]), 20)).toEqual({});
+    expect(passedOnRetry(undefined, 20)).toEqual({});
+  });
+
+  it("counts them past the failure cap", () => {
+    expect(passedOnRetry(tally(["A/a", "A/b", "A/c"]), 2)).toEqual({
+      passed_on_retry: 3,
+    });
   });
 });

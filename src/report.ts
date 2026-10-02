@@ -1,7 +1,9 @@
 import {
+  failedRuns,
   failureLocation,
   readTestDetails,
   type Diagnostic,
+  type RunTally,
   type TestFailure,
 } from "./xcresult.js";
 import { renderList, truncate } from "./toon.js";
@@ -60,6 +62,8 @@ export type FailureRow = {
   target: string;
   file?: string;
   line?: number | "";
+  /** With repetitions: failed runs of all runs, `1/10`. */
+  failed?: string;
   message: string;
 };
 
@@ -72,11 +76,16 @@ export type FailureRow = {
  * hundred failures should not spend four hundred subprocesses to print twenty
  * lines — and a lookup that fails leaves the location blank rather than
  * failing the report, since a bundle from another Xcode may not answer at all.
+ *
+ * Given `runs`, each row also says how many of the test's runs failed. Still
+ * one row per test: a test failing ten runs in ten would otherwise fill the
+ * cap with itself, and `10/10` against `1/10` is the difference between
+ * broken and flaky.
  */
 export async function failureRows(
   resultPath: string,
   failures: TestFailure[],
-  options: { max: number; full: boolean },
+  options: { max: number; full: boolean; runs?: RunTally | undefined },
 ): Promise<FailureRow[]> {
   const shown = failures.slice(0, options.max);
 
@@ -106,7 +115,22 @@ export async function failureRows(
             line: locations[index]?.line ?? "",
           }
         : {}),
+      ...(options.runs ? { failed: failedRuns(failure, options.runs) } : {}),
       message: options.full ? message : truncate(message, 300).text,
     };
   });
+}
+
+/**
+ * Tests `--retry` let pass after a failed run. Under retry the summary lists
+ * no failures and counts them passed, so without this the flake the run
+ * found is nowhere in the report. Past the failure cap, only how many.
+ */
+export function passedOnRetry(
+  runs: RunTally | undefined,
+  max: number,
+): { passed_on_retry?: string[] | number } {
+  const tests = runs?.passedOnRetry ?? [];
+  if (tests.length === 0) return {};
+  return { passed_on_retry: tests.length > max ? tests.length : tests };
 }

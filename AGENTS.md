@@ -133,7 +133,37 @@ only to say where one of them was written.
   test failure, so `failureLocation()` deliberately applies no offset.
   Within a test's node tree the deepest `sourceLocation` wins — a
   "Source Code Reference" child points at the assertion, its parent at the test
-  case that ran it.
+  case that ran it. With repetitions, each failed run has its own location,
+  and only the first failed one is walked: the message beside it is that
+  run's.
+- **The summary counts tests, never runs.** Under `--iterations 10` a test
+  that failed one run in ten is one `failedTests`, so 2 failures in 90 runs
+  read as 2 of 9 tests broken (issue #54). `testFailures` is one entry per
+  test, carrying the first failing run's text. `devicesAndConfigurations`
+  looks like a run count under `--iterations` and is not one under `--retry`
+  (4 for 5 runs). Only the tree counts runs, and `runTally` reads it:
+  - **Three shapes, one node type.** `--iterations` puts `Repetition N`
+    children under every test case; `--retry` puts `First Run` and
+    `Retry 1` under only the test it retried; `--until-failure` stops each
+    test at its own failure, so counts differ per test, and a test that
+    failed its first run has no repetitions at all. A parameterized test
+    nests them under each `Arguments` node; a skipped test has none. A test
+    case without repetitions is one run.
+  - **"Iterations" only when they are.** The tally says
+    `(9 tests × 10 iterations)` when every test that ran was repeated in
+    groups of `Repetition N` the same size, `(71 runs of 7 tests over 10
+iterations)` when skips or arguments break the product, and
+    `(5 runs of 4 tests)` otherwise. Retries are matched by name to keep
+    them out, which costs only the word if Apple renames them.
+  - **The verdict stays per test.** `testVerdict` reads the summary, so a
+    retry that passed is a pass and any failed iteration a failure; run counts
+    never reach it. A retry that passed is named in `passed_on_retry`, since
+    under `--retry` the summary lists no failure at all.
+  - **A repeated test's `duration` is the mean of its runs**, which is why
+    `--tests` heads that column `mean`.
+  - **`statistics` is `[]` on a plain run**, and says "ran with test
+    repetitions" otherwise. It decides whether the tree is read, never what
+    the counts are; `test` also reads it for the repetition flags.
 - **A diagnostic inside a macro expansion is recorded against the expansion.**
   Every compile error in an `#expect` or `#require` has this shape: the
   bundle's `sourceURL` is a temporary
@@ -697,8 +727,9 @@ Details in `watchRun` that are easy to undo by accident:
 
 `0` success, `1` the build or tests failed, `2` usage error. A test run in
 which nothing ran, or an `--only` matched nothing, is a failure too, whatever
-xcodebuild exited with. A failed build is
-not a tool error — the full report still goes to stdout — but the agent asked
+xcodebuild exited with. Repeated runs do not change that: a test `--retry`
+let pass is a pass, and a test that failed any iteration is a failure. A
+failed build is not a tool error — the full report still goes to stdout — but the agent asked
 for a build and did not get one, so `&&` chains and CI must stop. The non-zero
 status is set on `process.exitCode` by the command, after the report is
 rendered.

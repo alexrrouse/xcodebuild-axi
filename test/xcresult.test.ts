@@ -9,7 +9,13 @@ import {
   isRestatement,
   meaningfulErrors,
   testTally,
+  runTally,
+  failedRuns,
+  mayHaveRepeated,
+  type TestNode,
+  type TestTree,
 } from "../src/xcresult.js";
+import { renderFields } from "../src/toon.js";
 
 describe("parseSourceURL", () => {
   // Xcode's fragment counts from zero. Verified against a real build: a
@@ -403,5 +409,216 @@ describe("testTally", () => {
     expect(testTally({ passedTests: 1, expectedFailures: 1 })).toBe(
       "1 passed / 0 failed / 0 skipped / 1 expected failure",
     );
+  });
+});
+
+describe("repeated runs", () => {
+  // Shapes from real bundles: `--iterations`, `--retry` and
+  // `--until-failure` over two XCTest and two Swift Testing tests.
+  const url = (id: string) => `test://com.apple.xcode/MyApp/MyAppTests/${id}`;
+  const reps = (
+    id: string,
+    count: number,
+    failOn: number[] = [],
+    names = (n: number) => `Repetition ${n}`,
+  ): TestNode[] =>
+    Array.from({ length: count }, (_, index) => {
+      const n = index + 1;
+      const failed = failOn.includes(n);
+      return {
+        nodeType: "Repetition",
+        name: names(n),
+        nodeIdentifier: String(n),
+        nodeIdentifierURL: url(id),
+        result: failed ? "Failed" : "Passed",
+        ...(failed
+          ? {
+              children: [
+                { nodeType: "Failure Message", name: `failed on run ${n}` },
+              ],
+            }
+          : {}),
+      };
+    });
+  const testCase = (
+    id: string,
+    result: string,
+    children: TestNode[] = [],
+  ): TestNode => ({
+    nodeType: "Test Case",
+    name: id.split("/").pop(),
+    nodeIdentifier: id,
+    nodeIdentifierURL: url(id),
+    result,
+    duration: "0.28s",
+    children,
+  });
+  const tree = (...cases: TestNode[]): TestTree => ({
+    testNodes: [
+      {
+        nodeType: "Test Plan",
+        name: "MyApp",
+        children: [
+          { nodeType: "Unit test bundle", name: "MyAppTests", children: cases },
+        ],
+      },
+    ],
+  });
+
+  const iterations = tree(
+    testCase("CheckoutTests/testFlaky", "Failed", reps("x", 10, [4])),
+    testCase("CheckoutTests/testSteady", "Passed", reps("x", 10)),
+    testCase("CartTests/flaky()", "Failed", reps("x", 10, [7])),
+    testCase("CartTests/steady()", "Passed", reps("x", 10)),
+  );
+
+  it("counts runs, not tests, and says what they were runs of", () => {
+    const runs = runTally(iterations);
+    expect(runs).toMatchObject({
+      tests: 4,
+      runs: 40,
+      passed: 38,
+      failed: 2,
+      iterations: 10,
+    });
+    expect(testTally({ passedTests: 2, failedTests: 2 }, runs)).toBe(
+      "38 passed / 2 failed / 0 skipped (4 tests × 10 iterations)",
+    );
+  });
+
+  it("never needs TOON quotes", () => {
+    for (const runs of [runTally(iterations), runTally(retried)]) {
+      expect(renderFields({ tests: testTally({}, runs) })).not.toContain('"');
+    }
+  });
+
+  it("keeps the iterations when skips and arguments break the product", () => {
+    const runs = runTally(
+      tree(
+        testCase("CheckoutTests/testSteady", "Passed", reps("x", 10)),
+        testCase("CheckoutTests/testSkipped", "Skipped"),
+        testCase("PriceTests/positive(value:)", "Passed", [
+          { nodeType: "Arguments", name: "1", children: reps("x", 10) },
+          { nodeType: "Arguments", name: "2", children: reps("x", 10) },
+        ]),
+      ),
+    );
+    expect(testTally({}, runs)).toBe(
+      "30 passed / 0 failed / 1 skipped (31 runs of 3 tests over 10 iterations)",
+    );
+  });
+
+  it("counts an expected failure per run", () => {
+    const known = testCase(
+      "CheckoutTests/testKnown",
+      "Expected Failure",
+      reps("x", 3).map((rep) => ({ ...rep, result: "Expected Failure" })),
+    );
+    expect(testTally({}, runTally(tree(known)))).toBe(
+      "0 passed / 0 failed / 0 skipped / 3 expected failures (1 test × 3 iterations)",
+    );
+  });
+
+  // Only the retried test has repetitions, and they are retries.
+  const retriedFlaky = testCase(
+    "CheckoutTests/testFlaky",
+    "Passed",
+    reps("x", 2, [1], (n) => (n === 1 ? "First Run" : `Retry ${n - 1}`)),
+  );
+  const retried = tree(
+    retriedFlaky,
+    testCase("CheckoutTests/testSteady", "Passed"),
+    testCase("CartTests/flaky()", "Passed"),
+    testCase("CartTests/steady()", "Passed"),
+  );
+
+  it("names a test that passed only on a retry", () => {
+    const runs = runTally(retried);
+    expect(runs?.passedOnRetry).toEqual(["MyAppTests/CheckoutTests/testFlaky"]);
+    expect(testTally({}, runs)).toBe(
+      "4 passed / 1 failed / 0 skipped (5 runs of 4 tests)",
+    );
+  });
+
+  it("does not call retries iterations, even for a single test", () => {
+    expect(runTally(tree(retriedFlaky))?.iterations).toBeUndefined();
+  });
+
+  it("counts a test that failed the first run of --until-failure as one run", () => {
+    const runs = runTally(
+      tree(
+        testCase("CheckoutTests/testFlaky", "Failed", [
+          { nodeType: "Failure Message", name: "failed on run 1" },
+        ]),
+        testCase("CheckoutTests/testSteady", "Passed", reps("x", 20)),
+        testCase("CartTests/flaky()", "Failed", reps("x", 3, [3])),
+        testCase("CartTests/steady()", "Passed", reps("x", 20)),
+      ),
+    );
+    expect(runs).toMatchObject({ runs: 44, failed: 2 });
+    expect(runs?.iterations).toBeUndefined();
+  });
+
+  it("leaves a plain run to the summary", () => {
+    expect(
+      runTally(tree(testCase("CheckoutTests/testSteady", "Passed"))),
+    ).toBeUndefined();
+  });
+
+  it("says how many of a failing test's runs failed", () => {
+    const runs = runTally(iterations)!;
+    expect(
+      failedRuns({ testIdentifierURL: url("CheckoutTests/testFlaky") }, runs),
+    ).toBe("1/10");
+    expect(
+      failedRuns({ testIdentifierString: "CartTests/flaky()" }, runs),
+    ).toBe("1/10");
+    expect(failedRuns({ testIdentifierURL: url("Gone/testGone") }, runs)).toBe(
+      "",
+    );
+  });
+
+  it("reads the tree only when the summary hints at repetitions", () => {
+    expect(mayHaveRepeated({ statistics: [] })).toBe(false);
+    expect(
+      mayHaveRepeated({
+        statistics: [
+          {
+            title: "1 configuration ran with test repetitions",
+            subtitle: "40 test runs",
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("places a repeated failure at the run its message came from", () => {
+    // The message is the first failing run's, so the line must be too --
+    // not the deepest location of whichever run failed last.
+    const at = (line: number): TestNode => ({
+      nodeType: "Test Case Run",
+      result: "Failed",
+      sourceLocation: {
+        filePath: "/repo/CheckoutTests.swift",
+        lineNumber: line,
+      },
+      children: [
+        {
+          nodeType: "Source Code Reference",
+          sourceLocation: {
+            filePath: "/repo/CheckoutTests.swift",
+            lineNumber: line,
+          },
+        },
+      ],
+    });
+    const location = failureLocation({
+      testRuns: [
+        { nodeType: "Repetition", result: "Failed", children: [at(8)] },
+        { nodeType: "Repetition", result: "Passed" },
+        { nodeType: "Repetition", result: "Failed", children: [at(12)] },
+      ],
+    });
+    expect(location.line).toBe(8);
   });
 });

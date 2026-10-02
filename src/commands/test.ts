@@ -18,6 +18,8 @@ import {
   readTestSummary,
   testIdentifierFromURL,
   testTally,
+  mayHaveRepeated,
+  runTally,
   toDiagnostics,
   treeIdentifiers,
   describeDevice,
@@ -37,7 +39,12 @@ import {
   deviceLockOptions,
   lockKey,
 } from "../devicelock.js";
-import { diagnosticsBlock, failureRows, transcriptTail } from "../report.js";
+import {
+  diagnosticsBlock,
+  failureRows,
+  passedOnRetry,
+  transcriptTail,
+} from "../report.js";
 import type { BuildRun } from "../xcodebuild.js";
 import { readMacroOrigins } from "../macro.js";
 import {
@@ -68,7 +75,7 @@ ${BUILD_FLAG_HELP}
   --xctestrun <path>     test from an .xctestrun file instead of a scheme
   --parallel <n>         exact number of parallel test runners
   --no-parallel          disable parallel testing
-  --iterations <n>       run the tests this many times
+  --iterations <n>       run each test n times; tests: then counts runs
   --retry                retry failures, up to --iterations (default 3)
   --until-failure        repeat until something fails, up to --iterations (default 100)
   --language <iso639>    run in this language
@@ -90,6 +97,9 @@ note:
   The simulator is locked for the run. A second test or run on it is refused
   with DEVICE_BUSY and the other run's pid, rather than overwriting its
   installs; --wait queues behind it instead. build never locks.
+  With --iterations, --retry or --until-failure, tests: counts runs, each
+  failure says how many of its runs failed (failed 1/10), and a test that
+  passed only on a retry is named in passed_on_retry.
 exit:
   0 all tests passed, 1 a test or the build failed, no test ran, an --only
   matched nothing, or the device is busy, 2 usage error
@@ -216,11 +226,16 @@ export async function testCommand(args: string[]): Promise<string> {
     return renderTestsNeverRan(context, run);
   }
 
-  // The tree is what `--only` is checked against, and the only place a run
-  // of zero tests still names its device. Not worth a call otherwise.
+  // The tree is what `--only` is checked against, the only place a run of
+  // zero tests still names its device, and the only count of repeated runs.
+  // Not worth a call otherwise. A test plan can repeat on its own, so the
+  // flags alone do not say.
   const only = getListFlag(args, "--only");
   const tree =
-    only.length > 0 || summary.totalTestCount === 0
+    only.length > 0 ||
+    summary.totalTestCount === 0 ||
+    repetitionFlags(args).length > 0 ||
+    mayHaveRepeated(summary)
       ? await readTests(run.resultPath).catch(() => undefined)
       : undefined;
 
@@ -234,7 +249,21 @@ export async function testCommand(args: string[]): Promise<string> {
     maxFailures: getIntFlag(args, "--max-failures") ?? 20,
     full: context.full,
     coverage,
+    repeat: repetitionFlags(args),
   });
+}
+
+/**
+ * The flags that repeated this run, to carry into a rerun hint: one clean run
+ * of a test that failed one run in ten proves nothing.
+ */
+export function repetitionFlags(args: string[]): string {
+  const iterations = getIntFlag(args, "--iterations");
+  return [
+    ...(iterations !== undefined ? [`--iterations ${iterations}`] : []),
+    ...(hasFlag(args, "--retry") ? ["--retry"] : []),
+    ...(hasFlag(args, "--until-failure") ? ["--until-failure"] : []),
+  ].join(" ");
 }
 
 function testArgs(args: string[], coverage: boolean): string[] {
@@ -386,7 +415,10 @@ async function renderTestsNeverRan(
 interface RenderTestSummaryOptions {
   context: BuildContext;
   summary: TestSummary;
-  /** Read only when there are `--only` selectors to check, or nothing ran. */
+  /**
+   * Read only when there are `--only` selectors to check, nothing ran, or the
+   * run may have repeated.
+   */
   tree: TestTree | undefined;
   only: string[];
   skip: string[];
@@ -394,6 +426,8 @@ interface RenderTestSummaryOptions {
   maxFailures: number;
   full: boolean;
   coverage: boolean;
+  /** `repetitionFlags`, for the rerun hint. */
+  repeat: string;
 }
 
 async function renderTestSummary(
@@ -409,6 +443,7 @@ async function renderTestSummary(
     identifiers,
   });
   const { succeeded, unmatched } = verdict;
+  const runs = runTally(tree);
 
   // Report the destination the run actually landed on, not the one requested:
   // a name-based specifier can resolve to a different runtime than expected,
@@ -430,7 +465,8 @@ async function renderTestSummary(
       destination: landed,
       // Slash-separated, not comma-separated: TOON quotes any scalar
       // containing a comma, and the quotes cost more than the commas saved.
-      tests: testTally(summary),
+      tests: testTally(summary, runs),
+      ...passedOnRetry(runs, options.maxFailures),
       ...(unmatched.length > 0 ? { unmatched } : {}),
       duration: duration(run.seconds),
       ...(coverageReport
@@ -444,6 +480,7 @@ async function renderTestSummary(
     const shown = await failureRows(run.resultPath, failures, {
       max: options.maxFailures,
       full: options.full,
+      runs,
     });
     blocks.push(
       renderList(
@@ -495,7 +532,7 @@ async function renderTestSummary(
     const first = rerunIdentifier(failures[0]);
     if (first) {
       hints.push(
-        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${shellQuote(first)}\` to re-run just this failure`,
+        `Run \`xcodebuild-axi test ${context.subject.rerun} --only ${shellQuote(first)}${runs && options.repeat ? ` ${options.repeat}` : ""}\` to re-run just this failure`,
       );
     }
     hints.push(
