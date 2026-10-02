@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { relative } from "node:path";
 import { AxiError } from "./errors.js";
+import { plural } from "./toon.js";
 import {
   isMacroExpansionFile,
   locateInSource,
@@ -51,6 +52,12 @@ export interface TestSummary {
   environmentDescription?: string;
   testFailures?: TestFailure[];
   runtimeWarnings?: RawIssue[];
+  /**
+   * Empty on a plain run. With repetitions, prose such as
+   * `{title: "1 configuration ran with test repetitions", subtitle: "40 test
+   * runs"}` -- a sign the tree is worth reading, not something to parse.
+   */
+  statistics?: { title?: string; subtitle?: string }[];
   devicesAndConfigurations?: {
     device?: TestDevice;
     passedTests?: number;
@@ -316,18 +323,236 @@ function xcresulttool<T>(args: string[], path: string): Promise<T> {
  * wrapped in `XCTExpectFailure` in neither `passedTests` nor `failedTests`, so
  * leaving the fourth count out reported an 11-test run as 7 -- and a test
  * quietly missing from a tally reads as a test that did not run.
+ *
+ * With repetitions the summary still counts tests, so a test that failed one
+ * run in ten is counted as failed. Given `runs`, the tally counts runs
+ * instead and says what they were runs of:
+ * `88 passed / 2 failed / 0 skipped (9 tests × 10 iterations)`. A skipped
+ * test runs once and a parameterized one once per argument, so the product
+ * is not always the count: `(71 runs of 7 tests over 10 iterations)`, or
+ * `(5 runs of 4 tests)` when nothing says how many iterations there were.
+ * No commas, which TOON would quote.
  */
-export function testTally(summary: {
-  passedTests?: number;
-  failedTests?: number;
-  skippedTests?: number;
-  expectedFailures?: number;
-}): string {
-  const tally = `${summary.passedTests ?? 0} passed / ${summary.failedTests ?? 0} failed / ${summary.skippedTests ?? 0} skipped`;
-  const expected = summary.expectedFailures ?? 0;
-  return expected > 0
-    ? `${tally} / ${expected} expected failure${expected === 1 ? "" : "s"}`
-    : tally;
+export function testTally(
+  summary: {
+    passedTests?: number;
+    failedTests?: number;
+    skippedTests?: number;
+    expectedFailures?: number;
+  },
+  runs?: RunTally,
+): string {
+  if (!runs) {
+    return countTally({
+      passed: summary.passedTests ?? 0,
+      failed: summary.failedTests ?? 0,
+      skipped: summary.skippedTests ?? 0,
+      expectedFailures: summary.expectedFailures ?? 0,
+    });
+  }
+  const tests = plural(runs.tests, "test");
+  const { iterations } = runs;
+  const shape =
+    iterations !== undefined && runs.runs === runs.tests * iterations
+      ? `${tests} × ${iterations} iterations`
+      : `${plural(runs.runs, "run")} of ${tests}${iterations !== undefined ? ` over ${iterations} iterations` : ""}`;
+  return `${countTally(runs)} (${shape})`;
+}
+
+export interface RunCounts {
+  passed: number;
+  failed: number;
+  skipped: number;
+  expectedFailures: number;
+  /** Runs with a result none of the others name, so the tally still adds up. */
+  other?: number;
+}
+
+export function countTally(counts: RunCounts): string {
+  const tally = `${counts.passed} passed / ${counts.failed} failed / ${counts.skipped} skipped`;
+  const expected = counts.expectedFailures;
+  const other = counts.other ?? 0;
+  return [
+    tally,
+    ...(expected > 0 ? [plural(expected, "expected failure")] : []),
+    ...(other > 0 ? [`${other} other`] : []),
+  ].join(" / ");
+}
+
+/** One test's runs, in a tree that repeated some. */
+export interface TestRuns extends RunCounts {
+  /** As `--only` takes it: `MyAppTests/CheckoutTests/testTotal`. */
+  test: string;
+  /** The verdict across every run, as the tree gives it: `failed`. */
+  result: string;
+  runs: number;
+  /** The test case's own duration, which xcresulttool makes the mean. */
+  duration: string;
+}
+
+export interface RunTally extends RunCounts {
+  tests: number;
+  runs: number;
+  /**
+   * How many times each test was repeated, when every test that ran was
+   * repeated that many times -- per argument, for a parameterized one.
+   * `--retry` repeats only what failed, and `--until-failure` stops each
+   * test at its own failure, so neither has one.
+   */
+  iterations?: number;
+  byTest: TestRuns[];
+  /** Tests that failed a run and passed on a retry -- a flake `--retry` hid. */
+  passedOnRetry: string[];
+}
+
+/**
+ * Count runs rather than tests, from a tree that holds repetitions, or
+ * undefined when nothing repeated.
+ *
+ * `--iterations`, `--retry` and `--until-failure` all put `Repetition` nodes
+ * under a test case -- named `Repetition 4`, or `First Run` and `Retry 1`, so
+ * the node type is what is trusted -- each with its own result. A
+ * parameterized test puts them under each `Arguments` node instead, and an
+ * argument that was not repeated is one run of its own. A test that ran once
+ * has none: a skipped test, a test `--retry` never retried, or one that
+ * failed the first run of `--until-failure`. That one counts as one run.
+ */
+export function runTally(tree: TestTree | undefined): RunTally | undefined {
+  const byTest: TestRuns[] = [];
+  let repeated = false;
+  // The size of every group of sibling repetitions, and whether any run
+  // that was not skipped happened other than as an iteration.
+  const groups = new Set<number>();
+  let notIterated = false;
+
+  const runsOf = (node: TestNode): TestNode[] => {
+    const children = node.children ?? [];
+    const own = children.filter((child) => child.nodeType === "Repetition");
+    if (own.length > 0) {
+      repeated = true;
+      // `First Run` and `Retry 1` are retries, not iterations. Any other
+      // name costs the tally its "iterations", and nothing else.
+      if (own.some((child) => !/^Repetition \d+$/.test(child.name ?? ""))) {
+        notIterated = true;
+      } else {
+        groups.add(own.length);
+      }
+      return own;
+    }
+    const args = children.filter((child) => child.nodeType === "Arguments");
+    if (args.length > 0) return args.flatMap(runsOf);
+    if ((node.result ?? "").toLowerCase() !== "skipped") notIterated = true;
+    return [node];
+  };
+
+  const walk = (node: TestNode): void => {
+    if (node.nodeType !== "Test Case") {
+      for (const child of node.children ?? []) walk(child);
+      return;
+    }
+    const results = runsOf(node).map((run) => (run.result ?? "").toLowerCase());
+    const count = (result: string) =>
+      results.filter((each) => each === result).length;
+    const counts = {
+      passed: count("passed"),
+      failed: count("failed"),
+      skipped: count("skipped"),
+      expectedFailures: count("expected failure"),
+    };
+    byTest.push({
+      test: caseIdentifier(node),
+      result: (node.result ?? "").toLowerCase(),
+      runs: results.length,
+      ...counts,
+      other:
+        results.length -
+        counts.passed -
+        counts.failed -
+        counts.skipped -
+        counts.expectedFailures,
+      duration: node.duration ?? "",
+    });
+  };
+  for (const node of tree?.testNodes ?? []) walk(node);
+  if (!repeated) return undefined;
+
+  const sum = (key: keyof RunCounts | "runs") =>
+    byTest.reduce((total, test) => total + (test[key] ?? 0), 0);
+  const [iterations] = groups;
+  return {
+    tests: byTest.length,
+    runs: sum("runs"),
+    passed: sum("passed"),
+    failed: sum("failed"),
+    skipped: sum("skipped"),
+    expectedFailures: sum("expectedFailures"),
+    other: sum("other"),
+    ...(groups.size === 1 && !notIterated && iterations !== undefined
+      ? { iterations }
+      : {}),
+    byTest,
+    passedOnRetry: byTest
+      .filter((test) => test.result === "passed" && test.failed > 0)
+      .map((test) => test.test),
+  };
+}
+
+/**
+ * A test case's identifier as `--only` takes it. The URL form carries the
+ * target; a bundle without URLs falls back to what it has.
+ */
+export function caseIdentifier(node: TestNode): string {
+  return (
+    testIdentifierFromURL(node.nodeIdentifierURL) ??
+    node.nodeIdentifier ??
+    node.name ??
+    ""
+  );
+}
+
+/**
+ * Whether a summary hints at repetitions, so the tree is worth a read.
+ * `statistics` is empty on every plain run seen; what it says is prose.
+ */
+export function mayHaveRepeated(summary: TestSummary | undefined): boolean {
+  return (summary?.statistics ?? []).length > 0;
+}
+
+/**
+ * The runs of a bundle that repeated tests, read from its tree, or undefined
+ * for one that did not or whose tree cannot be read -- the per-test tally is
+ * still right about the verdict, only coarser.
+ */
+export async function readRepeatedRuns(
+  path: string,
+  summary: TestSummary,
+): Promise<RunTally | undefined> {
+  if (!mayHaveRepeated(summary)) return undefined;
+  return runTally(await readTests(path).catch(() => undefined));
+}
+
+/**
+ * `1/10`: how many of a failing test's runs failed. Empty when unknown.
+ *
+ * Matched on the full identifier wherever both sides have one. A failure
+ * with no URL is matched on its target and identifier, and a tree with no
+ * URLs on the target-less identifier -- never on a suffix, which would give
+ * a unit test's count to a UI test of the same name.
+ */
+export function failedRuns(failure: TestFailure, runs: RunTally): string {
+  const named = failure.testIdentifierString;
+  const candidates = new Set(
+    [
+      testIdentifierFromURL(failure.testIdentifierURL),
+      failure.targetName && named
+        ? `${failure.targetName}/${named}`
+        : undefined,
+    ].filter((id) => id !== undefined),
+  );
+  const test =
+    runs.byTest.find((each) => candidates.has(each.test)) ??
+    runs.byTest.find((each) => named !== undefined && each.test === named);
+  return test ? `${test.failed}/${test.runs}` : "";
 }
 
 export function readTestSummary(path: string): Promise<TestSummary> {
@@ -382,8 +607,27 @@ export function failureLocation(details: TestDetails): {
     for (const child of node.children ?? []) walk(child, depth + 1);
   };
 
-  for (const run of details.testRuns ?? []) walk(run, 0);
+  // With repetitions every failed run has its own location, and the deepest
+  // would be the last one's. The message beside it is the first's -- but a
+  // run that crashed may have no location, and any is better than none.
+  const first = firstFailedRepetition(details.testRuns);
+  for (const run of first ?? []) walk(run, 0);
+  if (!best) for (const run of details.testRuns ?? []) walk(run, 0);
   return best ? { file: best.file, line: best.line } : { file: "", line: "" };
+}
+
+function firstFailedRepetition(
+  nodes: TestNode[] | undefined,
+): TestNode[] | undefined {
+  for (const node of nodes ?? []) {
+    if (node.nodeType === "Repetition") {
+      if ((node.result ?? "").toLowerCase() === "failed") return [node];
+      continue;
+    }
+    const found = firstFailedRepetition(node.children);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** Every test the run knows about, as the tree Xcode groups them into. */

@@ -26,7 +26,6 @@ import {
   readLog,
   readMetrics,
   readTests,
-  testIdentifierFromURL,
   readTestSummary,
   toDiagnostics,
   type ActivityNode,
@@ -51,8 +50,13 @@ import {
   buildStatus,
   meaningfulErrors,
   testTally,
+  countTally,
+  readRepeatedRuns,
+  caseIdentifier,
+  runTally,
+  type TestRuns,
 } from "../xcresult.js";
-import { diagnosticsBlock, failureRows } from "../report.js";
+import { diagnosticsBlock, failureRows, passedOnRetry } from "../report.js";
 import {
   byteSize,
   duration,
@@ -78,7 +82,8 @@ With no path, reads the last run in this project.
 flags[17]:
   --failures     failures and errors only
   --warnings     include the full warning list
-  --tests        every test the run recorded, as the tree Xcode groups them into
+  --tests        every test the run recorded; with repetitions, how many of
+                 each test's runs passed, and their mean duration
   --insights     Xcode's own diagnosis: what failed together, and what was slow
   --activities   what one test did, step by step; needs --test
   --metrics      what the performance tests measured; --test narrows it
@@ -204,12 +209,14 @@ export async function resultCommand(args: string[]): Promise<string> {
   // here and the count is the discriminator instead.
   if (summary && (summary.totalTestCount ?? 0) > 0) {
     const device = summary.devicesAndConfigurations?.[0]?.device;
+    const runs = await readRepeatedRuns(path, summary);
     blocks.push(
       renderFields({
         result: summary.result?.toLowerCase() ?? "unknown",
         title: summary.title ?? "",
         destination: describeDevice(device),
-        tests: testTally(summary),
+        tests: testTally(summary, runs),
+        ...passedOnRetry(runs, max),
         duration:
           summary.startTime !== undefined && summary.finishTime !== undefined
             ? duration(summary.finishTime - summary.startTime)
@@ -219,7 +226,7 @@ export async function resultCommand(args: string[]): Promise<string> {
 
     const failures = summary.testFailures ?? [];
     if (failures.length > 0) {
-      const shown = await failureRows(path, failures, { max, full });
+      const shown = await failureRows(path, failures, { max, full, runs });
       blocks.push(
         renderList(
           failures.length > shown.length
@@ -791,12 +798,13 @@ async function runMerge(args: string[], max: number): Promise<string> {
   await mergeBundles(paths, outputPath);
 
   const merged = await readTestSummary(outputPath).catch(() => undefined);
+  const runs = merged ? await readRepeatedRuns(outputPath, merged) : undefined;
   return renderOutput([
     renderFields({
       merged: paths.length,
       ...(merged && (merged.totalTestCount ?? 0) > 0
         ? {
-            tests: testTally(merged),
+            tests: testTally(merged, runs),
             result: merged.result?.toLowerCase() ?? "unknown",
           }
         : {}),
@@ -940,11 +948,7 @@ export function flattenTests(
     if (node.nodeType === "Test Case") {
       rows.push({
         // The URL form carries the target, so a row can be pasted into --only.
-        test:
-          testIdentifierFromURL(node.nodeIdentifierURL) ??
-          node.nodeIdentifier ??
-          node.name ??
-          "",
+        test: caseIdentifier(node),
         result: (node.result ?? "").toLowerCase(),
         duration: node.duration ?? "",
       });
@@ -955,9 +959,42 @@ export function flattenTests(
   return rows;
 }
 
+/**
+ * `--tests` rows for a tree with repetitions: the verdict stays the test's,
+ * so `failed:` and the ordering keep meaning what they mean on a plain run,
+ * and `passed` says how many of its runs did. The duration xcresulttool gives
+ * a repeated test is the mean of its runs, so the column says `mean`.
+ *
+ * Failed tests first, then tests that passed despite a failed run -- the
+ * flakes -- then skipped and expected failures, then the rest, so the cap
+ * never cuts the reason anyone asked. A test that skipped some runs and
+ * passed the others is not a flake.
+ */
+export function testListRows(
+  runs: TestRuns[],
+): Array<{ test: string; result: string; passed: string; mean: string }> {
+  const rank = (test: TestRuns) =>
+    test.result === "failed"
+      ? 0
+      : test.failed > 0
+        ? 1
+        : test.result !== "passed"
+          ? 2
+          : 3;
+  return [...runs]
+    .sort((a, b) => rank(a) - rank(b))
+    .map((test) => ({
+      test: test.test,
+      result: test.result,
+      passed: `${test.passed}/${test.runs}`,
+      mean: test.duration,
+    }));
+}
+
 function reportTests(tree: TestTree, max: number, bundle: string): string {
-  const rows = flattenTests(tree.testNodes);
-  if (rows.length === 0) {
+  const runs = runTally(tree);
+  const flat = flattenTests(tree.testNodes);
+  if (flat.length === 0) {
     return renderOutput([
       renderFields({ tests: "none — this bundle recorded no tests" }),
       bundle,
@@ -966,17 +1003,20 @@ function reportTests(tree: TestTree, max: number, bundle: string): string {
 
   // A failing test is the reason anyone asks, so it is never the row that
   // gets cut when the list is capped.
-  const ordered = [
-    ...rows.filter((row) => row.result !== "passed"),
-    ...rows.filter((row) => row.result === "passed"),
-  ];
-  const shown = ordered.slice(0, max);
+  const rows: Array<Record<string, string>> = runs
+    ? testListRows(runs.byTest)
+    : [
+        ...flat.filter((row) => row.result !== "passed"),
+        ...flat.filter((row) => row.result === "passed"),
+      ];
+  const shown = rows.slice(0, max);
   const device = tree.devices?.[0];
 
   return renderOutput([
     renderFields({
       tests: rows.length,
       failed: rows.filter((row) => row.result === "failed").length,
+      ...(runs ? { runs: countTally(runs) } : {}),
       ...(device ? { destination: describeDevice(device) } : {}),
     }),
     renderList(

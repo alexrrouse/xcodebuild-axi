@@ -13,6 +13,17 @@ Notable changes to `xcodebuild-axi`. Versions follow
   11-test run reported `7 passed / 0 failed / 0 skipped` and four tests went
   unaccounted for. The tally now ends `/ 4 expected failures` when there are
   any, and is unchanged when there are none.
+- **`--iterations` reports runs, not tests**
+  ([#54](https://github.com/alexrrouse/xcodebuild-axi/issues/54)). Nine tests
+  run ten times with two failing runs reported `7 passed / 2 failed / 0
+skipped` — two broken tests, not two failures in 90 runs. The tally now
+  counts runs, `88 passed / 2 failed / 0 skipped (9 tests × 10 iterations)`;
+  each failure says how many of its runs failed (`failed: 1/10`); a test that
+  only passed on a `--retry` is named in `passed_on_retry`; and
+  `result --tests` gives each test's `passed: 9/10` and `mean` duration. The
+  home view counts runs as well, and the rerun hint keeps the repetition
+  flags. The verdict and exit code are
+  unchanged.
 - **A compile error inside a macro is reported where the macro was written**
   ([#55](https://github.com/alexrrouse/xcodebuild-axi/issues/55)). Every
   error in an `#expect` or `#require` was reported at the compiler's temporary

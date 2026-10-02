@@ -8,6 +8,7 @@ import {
   buildStatus,
   readBuildResults,
   readTestSummary,
+  readRepeatedRuns,
   describeDevice,
   type BuildResults,
 } from "../xcresult.js";
@@ -132,12 +133,13 @@ async function describeLastRun(
       : `${when} — test recorded no tests — ${where}`;
   }
 
-  const failed = summary.failedTests ?? 0;
+  // A repeated run's summary counts tests, so one failed run in ten would
+  // read as a broken test. Only then is the tree worth a second read.
+  const runs = await readRepeatedRuns(newest.path, summary);
+  const failed = runs?.failed ?? summary.failedTests ?? 0;
+  const passed = runs?.passed ?? summary.passedTests ?? 0;
   const device = describeDevice(summary.devicesAndConfigurations?.[0]?.device);
-  const verdict =
-    failed > 0
-      ? `${failed} failed, ${summary.passedTests ?? 0} passed`
-      : `${summary.passedTests ?? 0} passed`;
+  const verdict = `${failed > 0 ? `${failed} failed, ` : ""}${passed} passed${runs ? ` of ${runs.runs} runs` : ""}`;
   return `${summary.title ?? "test"} on ${device} — ${verdict} (${when})`;
 }
 

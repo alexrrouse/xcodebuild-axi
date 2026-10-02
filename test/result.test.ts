@@ -17,7 +17,9 @@ import {
   flattenTests,
   manifestRows,
   resultCommand,
+  testListRows,
 } from "../src/commands/result.js";
+import type { TestRuns } from "../src/xcresult.js";
 
 describe("buildFields", () => {
   // The bug this guards: `xcresulttool` answers the test-shaped query for a
@@ -456,5 +458,69 @@ describe("result --merge", () => {
     await expect(
       resultCommand(["/tmp/MyApps-1a2b3c4d/MyApp.xcresult", "--merge"]),
     ).rejects.toThrow(/combines two or more bundles/);
+  });
+});
+
+describe("testListRows", () => {
+  const runs = (
+    test: string,
+    result: string,
+    passed: number,
+    total: number,
+  ): TestRuns => ({
+    test: `MyAppTests/${test}`,
+    result,
+    runs: total,
+    passed,
+    failed: result === "skipped" ? 0 : total - passed,
+    skipped: result === "skipped" ? 1 : 0,
+    expectedFailures: 0,
+    duration: "0.28s",
+  });
+
+  it("says how many runs passed and calls the duration a mean", () => {
+    expect(
+      testListRows([runs("CheckoutTests/testFlaky", "failed", 9, 10)]),
+    ).toEqual([
+      {
+        test: "MyAppTests/CheckoutTests/testFlaky",
+        result: "failed",
+        passed: "9/10",
+        mean: "0.28s",
+      },
+    ]);
+  });
+
+  // A test --retry let through is a flake, and the cap must not cut it
+  // before the tests that passed every run.
+  it("lists failures, then flakes, then skips, then clean tests", () => {
+    const rows = testListRows([
+      runs("CheckoutTests/testSteady", "passed", 10, 10),
+      runs("CheckoutTests/testRetried", "passed", 1, 2),
+      runs("CheckoutTests/testSkipped", "skipped", 0, 1),
+      runs("CheckoutTests/testFlaky", "failed", 9, 10),
+    ]);
+    expect(rows.map((row) => row.test.split("/").pop())).toEqual([
+      "testFlaky",
+      "testRetried",
+      "testSkipped",
+      "testSteady",
+    ]);
+  });
+
+  it("does not call a test that skipped some runs a flake", () => {
+    const sometimesSkipped = {
+      ...runs("CheckoutTests/testSometimes", "passed", 7, 10),
+      failed: 0,
+      skipped: 3,
+    };
+    const rows = testListRows([
+      runs("CheckoutTests/testSkipped", "skipped", 0, 1),
+      sometimesSkipped,
+    ]);
+    expect(rows.map((row) => row.test.split("/").pop())).toEqual([
+      "testSkipped",
+      "testSometimes",
+    ]);
   });
 });
