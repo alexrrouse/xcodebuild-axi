@@ -39,6 +39,7 @@ import {
 } from "../devicelock.js";
 import { diagnosticsBlock, failureRows, transcriptTail } from "../report.js";
 import type { BuildRun } from "../xcodebuild.js";
+import { readMacroOrigins } from "../macro.js";
 import {
   duration,
   renderFields,
@@ -331,7 +332,10 @@ async function renderTestsNeverRan(
   run: BuildRun,
 ): Promise<string> {
   const results = await readBuildResults(run.resultPath).catch(() => undefined);
-  const errors = toDiagnostics(meaningfulErrors(results?.errors));
+  const errors = toDiagnostics(
+    meaningfulErrors(results?.errors),
+    await readMacroOrigins(run.logPath, results),
+  );
 
   // A restatement alone is no diagnosis; the transcript may have one.
   const unexplained = errors.every(isRestatement);

@@ -40,7 +40,9 @@ The transcript is not the best record of a build. The `.xcresult` bundle
 xcodebuild writes alongside it is: a few KB of JSON carrying pass/fail counts,
 the device the run actually landed on, and every diagnostic with a precise
 source location. `xcodebuild-axi` streams the transcript straight to a log file
-it never reads into memory, then reports from the bundle.
+it never reads into memory, then reports from the bundle. (One exception: the
+bundle places an error inside `#expect` in the compiler's temporary expansion
+file, so for those the log is streamed once to find the line it came from.)
 
 That also makes it more accurate than grepping. A failed build reports the real
 error with the real line:
