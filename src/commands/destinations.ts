@@ -1,6 +1,10 @@
 import { requireProject } from "../context.js";
 import { requireScheme } from "../scheme.js";
-import { incompatibleHelp, listDestinations } from "../destination.js";
+import {
+  incompatibleHelp,
+  probeDestinations,
+  simulatorFailureHelp,
+} from "../destination.js";
 import type { Destination } from "../destination.js";
 import { renderFields, renderHelp, renderList, renderOutput } from "../toon.js";
 import { getFlag, hasFlag, rejectUnknownFlags } from "../args.js";
@@ -34,11 +38,25 @@ export async function destinationsCommand(args: string[]): Promise<string> {
   const all = hasFlag(args, "--all");
   const simulatorsOnly = hasFlag(args, "--simulators");
 
-  const everything = await listDestinations(project, scheme);
+  const answer = await probeDestinations(project, scheme);
+  const everything = answer.destinations;
   let destinations = everything;
   if (!all) destinations = destinations.filter((d) => d.eligible);
   if (simulatorsOnly)
     destinations = destinations.filter((d) => d.platform.includes("Simulator"));
+
+  // Before anything else: with the simulators unloaded, every list below is
+  // the Mac alone, and "no runnable destinations" would read as the scheme's
+  // fault.
+  if (answer.simulatorFailure) {
+    return renderOutput([
+      renderFields({
+        scheme,
+        simulators: `unavailable — ${answer.simulatorFailure}`,
+      }),
+      renderHelp(simulatorFailureHelp(answer.simulatorFailure)),
+    ]);
+  }
 
   if (destinations.length === 0) {
     return renderOutput([

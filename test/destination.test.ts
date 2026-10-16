@@ -6,6 +6,8 @@ import {
   parseDestinationLine,
   parseDestinations,
   parseDestinationAnswer,
+  simulatorFailure,
+  simulatorFailureHelp,
   incompatibleHelp,
   pickDefault,
   preferFree,
@@ -394,5 +396,59 @@ describe("preferFree", () => {
   // Then the lock refuses naming the holder, which is the useful answer.
   it("keeps every device when all of them are held", () => {
     expect(preferFree([sim("aaaa-1")], new Set(["AAAA-1"]))).toHaveLength(1);
+  });
+});
+
+// Xcode 27.1, the afternoon it was installed, before its first launch: the
+// simulators never load, and only stderr says why.
+const OUT_OF_DATE = `2026-10-16 17:44:33.873 xcodebuild[35099:106191915]  DVTErrorPresenter: Unable to load simulator devices.
+Domain: DVTCoreSimulatorAdditionsErrorDomain
+Code: 3
+Failure Reason: The version of the CoreSimulator framework installed on this Mac is out-of-date and not supported by this version of Xcode.
+--
+2026-10-16 17:44:33.874 xcodebuild[35099:106191915]  iOSSimulator: [SimServiceContext sharedServiceContextForDeveloperDir:error:] returned nil (Error Domain=DVTCoreSimulatorAdditionsErrorDomain Code=3 "CoreSimulator is out of date. Current version (1171.7.0) is older than build version (1174.9.2)." UserInfo={NSLocalizedDescription=CoreSimulator is out of date. Current version (1171.7.0) is older than build version (1174.9.2).}). Simulator device support disabled.
+
+	Destinations compatible with the "Sundial" scheme:
+		{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }
+		{ platform:iOS Simulator, id:dvtdevice-DVTiOSDeviceSimulatorPlaceholder-iphonesimulator:placeholder, name:Any iOS Simulator Device }
+
+	Destinations incompatible with the "Sundial" scheme:
+		{ platform:macOS, arch:arm64e, id:00008112-000539543488C01E, name:My Mac, error:My Mac’s macOS platform doesn’t match Sundial.app’s supported platforms. }
+`;
+
+describe("simulatorFailure", () => {
+  it("quotes xcodebuild's own reason, versions and all", () => {
+    expect(simulatorFailure(OUT_OF_DATE)).toBe(
+      "CoreSimulator is out of date. Current version (1171.7.0) is older than build version (1174.9.2).",
+    );
+  });
+
+  it("rides along on the parsed answer, which is otherwise the Mac alone", () => {
+    const answer = parseDestinationAnswer(OUT_OF_DATE);
+    expect(answer.simulatorFailure).toMatch(/out of date/);
+    expect(answer.destinations.map((d) => d.name)).toEqual(["My Mac"]);
+  });
+
+  // The intermittent failure says nothing, and a retry fixes it: no reason
+  // here, or its help would stop the retry that works.
+  it("is nothing when xcodebuild said nothing", () => {
+    expect(
+      simulatorFailure(
+        '\tDestinations compatible with the "X" scheme:\n\t\t{ platform:macOS, arch:arm64, id:1, name:My Mac }\n',
+      ),
+    ).toBeUndefined();
+  });
+
+  it("falls back to the failure reason without a localized description", () => {
+    const text = OUT_OF_DATE.split("\n").slice(0, 4).join("\n");
+    expect(simulatorFailure(text)).toMatch(
+      /^The version of the CoreSimulator framework/,
+    );
+  });
+
+  it("names the first-launch install for an out-of-date CoreSimulator", () => {
+    expect(simulatorFailureHelp(simulatorFailure(OUT_OF_DATE)!)[0]).toMatch(
+      /sudo xcodebuild -runFirstLaunch/,
+    );
   });
 });
