@@ -107,6 +107,49 @@ export interface DestinationAnswer {
    * too old to run the app and still be fine to compile for.
    */
   generic: string[];
+  /**
+   * Why xcodebuild couldn't load the simulators, when it said so — see
+   * `simulatorFailure`.
+   */
+  simulatorFailure?: string;
+}
+
+/**
+ * Why xcodebuild couldn't load the simulators, in its own words.
+ *
+ * ⚠️ **Not every missing simulator list is the transient one.** After an
+ * Xcode update, until its first-launch install has run, CoreSimulator is
+ * older than Xcode needs and every `-showdestinations` lists only the Mac —
+ * the same shape as the intermittent failure, which a retry fixes. This one
+ * no retry fixes, and xcodebuild says so, in a stderr nobody reads:
+ * "CoreSimulator is out of date. Current version (1171.7.0) is older than
+ * build version (1174.9.2)." Seen on Xcode 27.1.
+ */
+export function simulatorFailure(text: string): string | undefined {
+  if (
+    !/Unable to load simulator devices|Simulator device support disabled/i.test(
+      text,
+    )
+  ) {
+    return undefined;
+  }
+  const reason =
+    /NSLocalizedDescription=([^}\n]+)/.exec(text)?.[1] ??
+    /Failure Reason: ([^\n]+)/.exec(text)?.[1];
+  return reason?.trim() || "xcodebuild could not load simulator devices";
+}
+
+/** What to do about a `simulatorFailure`. */
+export function simulatorFailureHelp(reason: string): string[] {
+  if (/out of date|out-of-date/i.test(reason)) {
+    return [
+      "Xcode was updated and its simulator components weren't: run `sudo xcodebuild -runFirstLaunch`, or open Xcode once and let it install them",
+      "Re-running won't help until then — and anything calling `simctl` meanwhile waits on a password prompt it can't show",
+    ];
+  }
+  return [
+    "xcodebuild said why above; re-running won't help until that's fixed",
+  ];
 }
 
 /**
@@ -140,7 +183,12 @@ export function parseDestinationAnswer(text: string): DestinationAnswer {
       generic.push(parsed.platform);
     }
   }
-  return { destinations, generic };
+  const failure = simulatorFailure(text);
+  return {
+    destinations,
+    generic,
+    ...(failure ? { simulatorFailure: failure } : {}),
+  };
 }
 
 /**
@@ -177,7 +225,7 @@ export async function listDestinations(
   return (await probeDestinations(project, scheme)).destinations;
 }
 
-async function probeDestinations(
+export async function probeDestinations(
   project: ProjectContext,
   scheme: string,
 ): Promise<DestinationAnswer & { complete: boolean }> {
@@ -201,9 +249,18 @@ async function probeDestinations(
   // a few seconds; a scheme that really is Mac-only would otherwise pay for
   // every attempt on every invocation.
   const first = await probe();
-  if (first.complete) return first;
+  if (first.complete || first.simulatorFailure) return first;
   const second = await probe();
   return second.complete ? second : first;
+}
+
+function throwIfSimulatorsFailed(answer: DestinationAnswer): void {
+  if (!answer.simulatorFailure) return;
+  throw new AxiError(
+    `xcodebuild can't load simulators: ${answer.simulatorFailure}`,
+    "DESTINATION_NOT_FOUND",
+    simulatorFailureHelp(answer.simulatorFailure),
+  );
 }
 
 /** Compare two "26.5"-style versions; newest first. */
@@ -261,6 +318,7 @@ export async function resolveDestination(
   if (destinations.length === 0) {
     // Quoting My Mac's "platform doesn't match" for an iOS app, because the
     // simulators never got listed, sends the reader to the wrong fix.
+    throwIfSimulatorsFailed(answer);
     if (!answer.complete) {
       throw new AxiError(
         `xcodebuild listed no simulators or devices for scheme '${options.scheme}'`,
@@ -332,6 +390,7 @@ export async function resolveDestination(
   // same half-finished answer as above, which once sent `tests` to the Mac.
   const runnable = destinations.filter((d) => !/designed for/i.test(d.variant));
   if (runnable.length === 0) {
+    throwIfSimulatorsFailed(answer);
     throw new AxiError(
       `xcodebuild listed no simulators for scheme '${options.scheme}', only this Mac as an iPad app`,
       "DESTINATION_NOT_FOUND",
